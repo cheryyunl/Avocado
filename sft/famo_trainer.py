@@ -100,6 +100,9 @@ class FAMOSFTTrainer(SFTTrainer):
             prev_loss_adjusted[mask] += C
             curr_loss_adjusted[mask] += C
 
+        with torch.no_grad():
+            self.min_losses = torch.minimum(self.min_losses, curr_loss_adjusted)
+            
         delta = (prev_loss_adjusted - self.min_losses + 1e-8).log() - \
                 (curr_loss_adjusted - self.min_losses + 1e-8).log()
         

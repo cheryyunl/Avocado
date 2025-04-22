@@ -26,7 +26,7 @@ torch.cuda.empty_cache()
 hhrlhf_dataset_path = 'Anthropic/hh-rlhf'
 summary_dataset_path = 'openai/summarize_from_feedback'
 # model_path = '/work/hdd/bcwu/cheryll/Llama-2-7b-hf'
-model_path = '/cmlscratch/cheryll/Llama-2-7b-hf'
+model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 
 
 @dataclass

@@ -133,9 +133,9 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
 
-    # 处理全部4种数据类型并分配task_id
     ds_harmless_chosen = ds_harmless.map(lambda x: {"task_id": 0})
     ds_harmless_chosen = ds_harmless_chosen.map(tokenize, batched=False, num_proc=30)
+
     ds_harmless_reject = ds_harmless.map(lambda x: {"task_id": 3})
     ds_harmless_reject = ds_harmless_reject.map(reject_tokenize, batched=False, num_proc=30)
     
@@ -145,7 +145,6 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
     ds_helpful_chosen = ds_helpful.map(lambda x: {"task_id": 2})
     ds_helpful_chosen = ds_helpful_chosen.map(tokenize, batched=False, num_proc=30)
     
-    # 确保每个数据集大小相同
     if size is not None:
         size_per_category = size // 4
         ds_harmless_chosen = ds_harmless_chosen.select(range(min(size_per_category, len(ds_harmless_chosen))))
@@ -153,15 +152,13 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
         ds_helpful_reject = ds_helpful_reject.select(range(min(size_per_category, len(ds_helpful_reject))))
         ds_helpful_chosen = ds_helpful_chosen.select(range(min(size_per_category, len(ds_helpful_chosen))))
     
-    # 合并所有数据集
     ds_concat = concatenate_datasets([
-        ds_harmless_chosen,  # 无害的正确回答 (task_id=0)
-        ds_harmless_reject   # 无害但被拒绝的回答 (harmful) (task_id=3)
-        ds_helpful_chosen,   # 有帮助的正确回答 (task_id=2)
-        ds_helpful_reject,   # 有帮助但被拒绝的回答 (helpless) (task_id=1)
+        ds_harmless_chosen,  
+        ds_harmless_reject   
+        ds_helpful_chosen,   
+        ds_helpful_reject,   
     ])
     
-    # 过滤并设置格式
     ds_concat = ds_concat.filter(lambda x: len(x["input_ids"]) <= 512 and len(x["input_ids"]) >= 8)
     ds_concat = ds_concat.remove_columns(['chosen', 'rejected'])
     ds_concat.set_format(type="torch")

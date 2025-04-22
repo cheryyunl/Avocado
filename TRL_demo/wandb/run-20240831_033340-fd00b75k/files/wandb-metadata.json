@@ -1,0 +1,131 @@
+{
+    "os": "Linux-5.15.0-91-generic-x86_64-with-glibc2.35",
+    "python": "3.10.14",
+    "heartbeatAt": "2024-08-31T07:33:42.200583",
+    "startedAt": "2024-08-31T07:33:40.154571",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "<python with no main file>",
+    "codePathLocal": null,
+    "git": {
+        "remote": "https://github.com/xuejunzhang2002/multi-objective-alignment.git",
+        "commit": "d91ac6f7f07fba719e45a1b4ec89334e6c238281"
+    },
+    "email": null,
+    "root": "/nfs/turbo/coe-chaijy/xuejunzh/multi-objective-alignment",
+    "host": "sled-aspen.eecs.umich.edu",
+    "username": "xuejunzh",
+    "executable": "/home/xuejunzh/anaconda3/envs/solo/bin/python",
+    "cpu_count": 16,
+    "cpu_count_logical": 16,
+    "cpu_freq": {
+        "current": 3984.367062500001,
+        "min": 0.0,
+        "max": 0.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 3666.324,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 3992.383,
+            "min": 0.0,
+            "max": 0.0
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 3517.2806854248047,
+            "used": 2969.510887145996
+        }
+    },
+    "gpu": "NVIDIA RTX A6000",
+    "gpu_count": 2,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA RTX A6000",
+            "memory_total": 48305799168
+        },
+        {
+            "name": "NVIDIA RTX A6000",
+            "memory_total": 48305799168
+        }
+    ],
+    "memory": {
+        "total": 251.711181640625
+    }
+}

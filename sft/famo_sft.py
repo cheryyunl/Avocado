@@ -33,7 +33,7 @@ model_path = '/cmlscratch/cheryll/Llama-2-7b-hf'
 class ScriptArguments:
     log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
     save_directory: Optional[str] = field(default='./logs_trl/')
-    learning_rate: Optional[float] = field(default=1.41e-4, metadata={"help": "the learning rate"})
+    learning_rate: Optional[float] = field(default=1e-4, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the number of gradient accumulation steps"})
     load_in_8bit: Optional[bool] = field(default=True, metadata={"help": "loading model in 8 bit or bfloat16"})
@@ -74,7 +74,7 @@ training_args = TrainingArguments(
         per_device_eval_batch_size=script_args.batch_size,
         learning_rate=script_args.learning_rate,
         lr_scheduler_type="linear",
-        warmup_steps=0,
+        warmup_steps=100,
         gradient_accumulation_steps=script_args.gradient_accumulation_steps,
         gradient_checkpointing=False,
         weight_decay=0.01,
@@ -137,8 +137,8 @@ elif exp_type == 'assistant_all':
     train_dataset = build_mt_all_dataset(hhrlhf_dataset_path, tokenizer, split='train')  
     response_template_ids = tokenizer.encode(Instructions.response_split, add_special_tokens=False)[1:]  
     collator = MTDataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
-    rejected_ids = [1]
-    n_tasks = 3
+    rejected_ids = [1, 3]
+    n_tasks = 4
 else:
     dataset = build_dataset_summary(summary_dataset_path, tokenizer, split='train')
     response_template_ids = tokenizer.encode(Instructions_summary.response_split, add_special_tokens=False)[1:]  
@@ -157,8 +157,8 @@ trainer = FAMOSFTTrainer(
     data_collator=collator,
     n_tasks=n_tasks, 
     gamma=0.01,
-    w_lr=0.025,
-    famo_update_frequency=5,
+    w_lr=0.005,
+    famo_update_frequency=10,
     rejected_ids=rejected_ids
 )
 

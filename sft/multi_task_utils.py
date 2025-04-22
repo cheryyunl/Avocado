@@ -157,8 +157,8 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
     ds_concat = concatenate_datasets([
         ds_harmless_chosen,  # 无害的正确回答 (task_id=0)
         ds_harmless_reject   # 无害但被拒绝的回答 (harmful) (task_id=3)
-        ds_helpful_reject,   # 有帮助但被拒绝的回答 (helpless) (task_id=1)
         ds_helpful_chosen,   # 有帮助的正确回答 (task_id=2)
+        ds_helpful_reject,   # 有帮助但被拒绝的回答 (helpless) (task_id=1)
     ])
     
     # 过滤并设置格式

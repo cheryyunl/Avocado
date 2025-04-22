@@ -277,9 +277,9 @@ class FAMOSFTTrainer(SFTTrainer):
         with self.compute_loss_context_manager():
             orig_loss = self.compute_loss(model, inputs)
             if self.rejected_ids is not None and task_id in self.rejected_ids:
-                # orig_loss = - self.loss_scale * torch.log(1 + orig_loss)
-                beta = 0.1
-                orig_loss = -F.logsigmoid(beta * orig_loss).mean() * 2 / beta 
+                orig_loss = - self.loss_scale * torch.log(1 + orig_loss)
+                # beta = 0.1
+                # orig_loss = -F.logsigmoid(beta * orig_loss).mean() * 2 / beta 
             loss = orig_loss * famo_w[task_id]
         
         if (
@@ -309,9 +309,9 @@ class FAMOSFTTrainer(SFTTrainer):
             with torch.no_grad():
                 new_loss = self.eval_loss(model, self.prev_inputs)
                 if self.rejected_ids is not None and prev_task_id in self.rejected_ids:
-                    # new_loss = - self.loss_scale * torch.log(1 + new_loss)
-                    beta = 0.1
-                    new_loss = -F.logsigmoid(beta * new_loss).mean() * 2 / beta 
+                    new_loss = - self.loss_scale * torch.log(1 + new_loss)
+                    # beta = 0.1
+                    # new_loss = -F.logsigmoid(beta * new_loss).mean() * 2 / beta 
             new_all_losses = torch.zeros(self.n_tasks, device=new_loss.device)
             new_all_losses[prev_task_id] = new_loss
             new_all_losses = self.accelerator.reduce(new_all_losses, "sum")

@@ -154,7 +154,7 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
     
     ds_concat = concatenate_datasets([
         ds_harmless_chosen,  
-        ds_harmless_reject   
+        ds_harmless_reject,
         ds_helpful_chosen,   
         ds_helpful_reject,   
     ])

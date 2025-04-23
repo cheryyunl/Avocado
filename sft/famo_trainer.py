@@ -97,8 +97,8 @@ class FAMOSFTTrainer(SFTTrainer):
                 C_values[task_id] = max(1.0, 5.0 * scale)
             mask = torch.zeros_like(prev_loss_adjusted, dtype=torch.bool)
             mask[self.rejected_ids] = True
-            prev_loss_adjusted[mask] = torch.max(prev_loss_adjusted[mask], torch.tensor(-C_values).to(prev_loss_adjusted.device)) + C_values[mask]
-            curr_loss_adjusted[mask] = torch.max(curr_loss_adjusted[mask], torch.tensor(-C_values).to(curr_loss_adjusted.device)) + C_values[mask]
+            prev_loss_adjusted[mask] = torch.max(prev_loss_adjusted[mask], -C_values[mask]) + C_values[mask]
+            curr_loss_adjusted[mask] = torch.max(curr_loss_adjusted[mask], -C_values[mask]) + C_values[mask]
 
         # with torch.no_grad():
             # self.min_losses = torch.minimum(self.min_losses, curr_loss_adjusted)

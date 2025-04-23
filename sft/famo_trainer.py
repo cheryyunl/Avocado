@@ -76,8 +76,8 @@ class FAMOSFTTrainer(SFTTrainer):
         self.args.average_tokens_across_devices = True
         self.n_tasks = n_tasks
         self.rejected_ids = rejected_ids
-        self.loss_scale = 0.5
-
+        self.loss_scale = 1
+        
         self.min_losses = torch.zeros(n_tasks, device='cuda')
         self.w = torch.full((n_tasks,), 1.0 / n_tasks, requires_grad=True, device='cuda')
         if self.args.local_rank == 0:
@@ -92,7 +92,7 @@ class FAMOSFTTrainer(SFTTrainer):
         curr_loss_adjusted = curr_loss.clone()
                     
         if hasattr(self, 'rejected_ids') and self.rejected_ids is not None and len(self.rejected_ids) > 0:
-            C = 2
+            C = 5
             mask = torch.zeros_like(prev_loss_adjusted, dtype=torch.bool)
             mask[self.rejected_ids] = True
             prev_loss_adjusted[mask] = torch.max(prev_loss_adjusted[mask], torch.tensor(-C).to(prev_loss_adjusted.device))

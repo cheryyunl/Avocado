@@ -76,7 +76,7 @@ class FAMOSFTTrainer(SFTTrainer):
         self.args.average_tokens_across_devices = True
         self.n_tasks = n_tasks
         self.rejected_ids = rejected_ids
-        self.loss_scale = {1: 1, 3: 1}
+        self.loss_scale = {1: 1, 3: 0.2}
 
         self.min_losses = torch.zeros(n_tasks, device='cuda')
         self.w = torch.full((n_tasks,), 1.0 / n_tasks, requires_grad=True, device='cuda')

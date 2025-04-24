@@ -33,7 +33,7 @@ model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 class ScriptArguments:
     log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
     save_directory: Optional[str] = field(default='./logs_trl/')
-    learning_rate: Optional[float] = field(default=1e-5, metadata={"help": "the learning rate"})
+    learning_rate: Optional[float] = field(default=2e-5, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the number of gradient accumulation steps"})
     load_in_8bit: Optional[bool] = field(default=True, metadata={"help": "loading model in 8 bit or bfloat16"})
@@ -74,7 +74,7 @@ training_args = TrainingArguments(
         per_device_eval_batch_size=script_args.batch_size,
         learning_rate=script_args.learning_rate,
         lr_scheduler_type="linear",
-        warmup_steps=100,
+        warmup_steps=1000,
         gradient_accumulation_steps=script_args.gradient_accumulation_steps,
         gradient_checkpointing=False,
         weight_decay=0.01,
@@ -95,8 +95,8 @@ current_device = Accelerator().local_process_index
 print(current_device)
 
 lora_config = LoraConfig(
-    r=64, 
-    lora_alpha=128, 
+    r=32, 
+    lora_alpha=64, 
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM",

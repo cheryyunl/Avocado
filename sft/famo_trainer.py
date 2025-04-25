@@ -77,7 +77,7 @@ class FAMOSFTTrainer(SFTTrainer):
         self.n_tasks = n_tasks
         self.rejected_ids = rejected_ids
         self.loss_scale = {1: 1, 3: 0.2}
-        self.ema_alpha = 0.95
+        self.ema_alpha = 0.9
         self.init_steps = 200
 
         self.min_losses = torch.zeros(n_tasks, device='cuda')

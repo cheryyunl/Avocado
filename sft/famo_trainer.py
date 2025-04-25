@@ -76,7 +76,7 @@ class FAMOSFTTrainer(SFTTrainer):
         self.args.average_tokens_across_devices = True
         self.n_tasks = n_tasks
         self.rejected_ids = rejected_ids
-        self.loss_scale = {1: 0.2, 3: 0.2}
+        self.loss_scale = {1: 1, 3: 0.2}
         self.ema_alpha = 0.95
         self.init_steps = 200
 

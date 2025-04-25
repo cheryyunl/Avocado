@@ -76,7 +76,9 @@ class FAMOSFTTrainer(SFTTrainer):
         self.args.average_tokens_across_devices = True
         self.n_tasks = n_tasks
         self.rejected_ids = rejected_ids
-        self.loss_scale = {1: 1, 3: 0.2}
+        self.loss_scale = {1: 1, 3: 1}
+        self.ema_alpha = 0.95
+        self.init_steps = 200
 
         self.min_losses = torch.zeros(n_tasks, device='cuda')
         self.w = torch.full((n_tasks,), 1.0 / n_tasks, requires_grad=True, device='cuda')
@@ -100,9 +102,15 @@ class FAMOSFTTrainer(SFTTrainer):
             prev_loss_adjusted[mask] = torch.max(prev_loss_adjusted[mask], -C_values[mask]) + C_values[mask]
             curr_loss_adjusted[mask] = torch.max(curr_loss_adjusted[mask], -C_values[mask]) + C_values[mask]
 
-        if not hasattr(self, 'initial_losses') and self.step_count >= 200:
-            self.initial_losses = curr_loss_adjusted.clone().detach() 
-            print(f"Recorded initial adjusted losses: {self.initial_losses}")
+        # if not hasattr(self, 'initial_losses') and self.step_count >= 200:
+        #     self.initial_losses = curr_loss_adjusted.clone().detach() 
+        #     print(f"Recorded initial adjusted losses: {self.initial_losses}")
+        
+        if not hasattr(self, 'initial_losses') and self.step_count < self.init_steps:
+            self.loss_ema = getattr(self, 'loss_ema', curr_loss_adjusted.clone())
+            self.loss_ema = self.ema_alpha * self.loss_ema + (1 - self.ema_alpha) * curr_loss_adjusted
+        elif not hasattr(self, 'initial_losses') and self.step_count == self.init_steps:
+            self.initial_losses = self.loss_ema.clone()
     
         if hasattr(self, 'initial_losses'):
             norm_prev = prev_loss_adjusted / torch.clamp(self.initial_losses, min=1e-5)

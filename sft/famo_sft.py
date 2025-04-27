@@ -40,6 +40,9 @@ class ScriptArguments:
     wandb_name: Optional[str] = field(default='summary_sft_all_bs1_lora64', metadata={"help": "Name for this experiment"})
     exp_type: Optional[str] = field(default='summary', metadata={"help": "exp type, 'summary' or 'assistant' "})
     base_model_name: Optional[str] = field(default="meta-llama/Llama-2-7b-hf", metadata={"help": "local path to the base model or the huggingface id"})
+    loss_scale: Optional[float] = field(default="{1: 0.2, 3: 0.2}", metadata={"help": "loss scale for objectives"})
+    ema_alpha: Optional[float] = field(default=0.9, metadata={"help": "EMA smoothing factor"})
+    init_steps: Optional[int] = field(default=200, metadata={"help": "Number of steps for EMA initialization"})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -139,6 +142,18 @@ elif exp_type == 'assistant_all':
     collator = MTDataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
     rejected_ids = [1, 3]
     n_tasks = 4
+elif exp_type == 'assistant_harmless':
+    train_dataset = build_harmless_dataset(hhrlhf_dataset_path, tokenizer, split='train')  
+    response_template_ids = tokenizer.encode(Instructions.response_split, add_special_tokens=False)[1:]  
+    collator = MTDataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+    rejected_ids = [1]
+    n_tasks = 2
+elif exp_type == 'assistant_helpful':
+    train_dataset = build_helpful_dataset(hhrlhf_dataset_path, tokenizer, split='train')  
+    response_template_ids = tokenizer.encode(Instructions.response_split, add_special_tokens=False)[1:]  
+    collator = MTDataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+    rejected_ids = [1]
+    n_tasks = 2
 else:
     dataset = build_dataset_summary(summary_dataset_path, tokenizer, split='train')
     response_template_ids = tokenizer.encode(Instructions_summary.response_split, add_special_tokens=False)[1:]  
@@ -157,9 +172,12 @@ trainer = FAMOSFTTrainer(
     data_collator=collator,
     n_tasks=n_tasks, 
     gamma=0.01,
-    w_lr=1e-3,
+    w_lr=1e-4,
     famo_update_frequency=10,
-    rejected_ids=rejected_ids
+    rejected_ids=rejected_ids,
+    loss_scale=script_args.loss_scale,
+    ema_alpha=script_args.ema_alpha,
+    init_steps=script_args.init_steps,
 )
 
 trainer = accelerator.prepare(trainer)

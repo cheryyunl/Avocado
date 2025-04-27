@@ -165,6 +165,95 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
 
     return ds_concat
 
+def build_harmless_dataset(path, tokenizer, split='train', size=None, seed=42):
+    ds_harmless = load_dataset("Anthropic/hh-rlhf", data_dir="harmless-base", split=split)
+    ds_harmless = ds_harmless.shuffle(seed=seed)
+    
+    def tokenize(sample):
+        sample['text'] = sample['chosen']
+        split_text = sample['text'].split('\n\nAssistant:')
+        sample['prompt'] = '\n\nAssistant:'.join(split_text[:-1]) + ' ' + '\n\nAssistant:'
+        sample['response'] = split_text[-1].strip()
+        sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
+        sample["query"] = tokenizer.decode(sample["input_ids"])
+        sample["task_id"] = torch.tensor([0], dtype=torch.long)
+        return sample
+
+    def reject_tokenize(sample):
+        sample['text'] = sample['rejected']
+        split_text = sample['text'].split('\n\nAssistant:')
+        sample['prompt'] = '\n\nAssistant:'.join(split_text[:-1]) + ' ' + '\n\nAssistant:'
+        sample['response'] = split_text[-1].strip()
+        sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
+        sample["query"] = tokenizer.decode(sample["input_ids"])
+        sample["task_id"] = torch.tensor([1], dtype=torch.long)
+        return sample
+
+    ds_harmless_chosen = ds_harmless.map(tokenize, batched=False, num_proc=30)
+    ds_harmless_reject = ds_harmless.map(reject_tokenize, batched=False, num_proc=30)
+    
+    if size is not None:
+        size_per_category = size // 2
+        ds_harmless_chosen = ds_harmless_chosen.select(range(min(size_per_category, len(ds_harmless_chosen))))
+        ds_harmless_reject = ds_harmless_reject.select(range(min(size_per_category, len(ds_harmless_reject))))
+    
+    ds_concat = concatenate_datasets([
+        ds_harmless_chosen,  
+        ds_harmless_reject,
+    ])
+    
+    ds_concat = ds_concat.filter(lambda x: len(x["input_ids"]) <= 512 and len(x["input_ids"]) >= 8)
+    ds_concat = ds_concat.remove_columns(['chosen', 'rejected'])
+    ds_concat.set_format(type="torch")
+
+    return ds_concat
+
+def build_helpful_dataset(path, tokenizer, split='train', size=None, seed=42):
+    ds_helpful_base = load_dataset("Anthropic/hh-rlhf", data_dir="helpful-base", split=split)
+    ds_helpful_online = load_dataset("Anthropic/hh-rlhf", data_dir="helpful-online", split=split)
+    ds_helpful_rs = load_dataset("Anthropic/hh-rlhf", data_dir="helpful-rejection-sampled", split=split)
+    ds_helpful = concatenate_datasets([ds_helpful_base, ds_helpful_online, ds_helpful_rs])
+    ds_helpful = ds_helpful.shuffle(seed=seed)
+    
+    def tokenize(sample):
+        sample['text'] = sample['chosen']
+        split_text = sample['text'].split('\n\nAssistant:')
+        sample['prompt'] = '\n\nAssistant:'.join(split_text[:-1]) + ' ' + '\n\nAssistant:'
+        sample['response'] = split_text[-1].strip()
+        sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
+        sample["query"] = tokenizer.decode(sample["input_ids"])
+        sample["task_id"] = torch.tensor([0], dtype=torch.long)
+        return sample
+
+    def reject_tokenize(sample):
+        sample['text'] = sample['rejected']
+        split_text = sample['text'].split('\n\nAssistant:')
+        sample['prompt'] = '\n\nAssistant:'.join(split_text[:-1]) + ' ' + '\n\nAssistant:'
+        sample['response'] = split_text[-1].strip()
+        sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
+        sample["query"] = tokenizer.decode(sample["input_ids"])
+        sample["task_id"] = torch.tensor([1], dtype=torch.long)
+        return sample
+
+    ds_helpful_chosen = ds_helpful.map(tokenize, batched=False, num_proc=30)
+    ds_helpful_reject = ds_helpful.map(reject_tokenize, batched=False, num_proc=30)
+    
+    if size is not None:
+        size_per_category = size // 2
+        ds_helpful_chosen = ds_helpful_chosen.select(range(min(size_per_category, len(ds_helpful_chosen))))
+        ds_helpful_reject = ds_helpful_reject.select(range(min(size_per_category, len(ds_helpful_reject))))
+    
+    ds_concat = concatenate_datasets([
+        ds_helpful_chosen,   
+        ds_helpful_reject,   
+    ])
+    
+    ds_concat = ds_concat.filter(lambda x: len(x["input_ids"]) <= 512 and len(x["input_ids"]) >= 8)
+    ds_concat = ds_concat.remove_columns(['chosen', 'rejected'])
+    ds_concat.set_format(type="torch")
+
+    return ds_concat
+
 class MTDataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
     """
     Data collator used for completion tasks. It ensures that all the tokens of the labels are set to an 'ignore_index'

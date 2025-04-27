@@ -17,6 +17,7 @@ import warnings
 import sys
 import time
 import wandb
+import ast
 
 class TaskSpecificSampler(DistributedSampler):
     def __init__(self, dataset, n_tasks, **kwargs):
@@ -56,6 +57,9 @@ class FAMOSFTTrainer(SFTTrainer):
         w_lr: float = 0.01,
         famo_update_frequency=5,
         rejected_ids = None,
+        loss_scale = None,
+        ema_alpha = None,
+        init_steps = None,
         **trainer_args
     ):
         super().__init__(
@@ -76,9 +80,9 @@ class FAMOSFTTrainer(SFTTrainer):
         self.args.average_tokens_across_devices = True
         self.n_tasks = n_tasks
         self.rejected_ids = rejected_ids
-        self.loss_scale = {1: 0.8, 3: 0.8}
-        self.ema_alpha = 0.9
-        self.init_steps = 200
+        self.loss_scale = ast.literal_eval(loss_scale)
+        self.ema_alpha = ema_alpha
+        self.init_steps = init_steps
 
         self.min_losses = torch.zeros(n_tasks, device='cuda')
         self.w = torch.full((n_tasks,), 1.0 / n_tasks, requires_grad=True, device='cuda')

@@ -136,14 +136,14 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
     ds_harmless_chosen = ds_harmless.map(lambda x: {"task_id": 0})
     ds_harmless_chosen = ds_harmless_chosen.map(tokenize, batched=False, num_proc=30)
 
-    ds_harmless_reject = ds_harmless.map(lambda x: {"task_id": 3})
+    ds_harmless_reject = ds_harmless.map(lambda x: {"task_id": 1})
     ds_harmless_reject = ds_harmless_reject.map(reject_tokenize, batched=False, num_proc=30)
-    
-    ds_helpful_reject = ds_helpful.map(lambda x: {"task_id": 1})
-    ds_helpful_reject = ds_helpful_reject.map(reject_tokenize, batched=False, num_proc=30)
     
     ds_helpful_chosen = ds_helpful.map(lambda x: {"task_id": 2})
     ds_helpful_chosen = ds_helpful_chosen.map(tokenize, batched=False, num_proc=30)
+
+    ds_helpful_reject = ds_helpful.map(lambda x: {"task_id": 3})
+    ds_helpful_reject = ds_helpful_reject.map(reject_tokenize, batched=False, num_proc=30)
     
     if size is not None:
         size_per_category = size // 4

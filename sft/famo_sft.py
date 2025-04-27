@@ -40,7 +40,7 @@ class ScriptArguments:
     wandb_name: Optional[str] = field(default='summary_sft_all_bs1_lora64', metadata={"help": "Name for this experiment"})
     exp_type: Optional[str] = field(default='summary', metadata={"help": "exp type, 'summary' or 'assistant' "})
     base_model_name: Optional[str] = field(default="meta-llama/Llama-2-7b-hf", metadata={"help": "local path to the base model or the huggingface id"})
-    loss_scale: Optional[str] = field(default="{1: 0.2, 3: 0.2}", metadata={"help": "loss scale for objectives"})
+    loss_scale: Optional[str] = field(default="{1: 1, 3: 0.2}", metadata={"help": "loss scale for objectives"})
     ema_alpha: Optional[float] = field(default=0.9, metadata={"help": "EMA smoothing factor"})
     init_steps: Optional[int] = field(default=200, metadata={"help": "Number of steps for EMA initialization"})
 
@@ -172,7 +172,7 @@ trainer = FAMOSFTTrainer(
     data_collator=collator,
     n_tasks=n_tasks, 
     gamma=0.01,
-    w_lr=1e-4,
+    w_lr=1e-3,
     famo_update_frequency=10,
     rejected_ids=rejected_ids,
     loss_scale=script_args.loss_scale,

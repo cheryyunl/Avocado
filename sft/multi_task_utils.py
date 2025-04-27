@@ -176,7 +176,7 @@ def build_harmless_dataset(path, tokenizer, split='train', size=None, seed=42):
         sample['response'] = split_text[-1].strip()
         sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
         sample["query"] = tokenizer.decode(sample["input_ids"])
-        sample["task_id"] = torch.tensor([0], dtype=torch.long)
+        sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
 
     def reject_tokenize(sample):
@@ -186,10 +186,13 @@ def build_harmless_dataset(path, tokenizer, split='train', size=None, seed=42):
         sample['response'] = split_text[-1].strip()
         sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
         sample["query"] = tokenizer.decode(sample["input_ids"])
-        sample["task_id"] = torch.tensor([1], dtype=torch.long)
+        sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
-
+    
+    ds_harmless_chosen = ds_harmless.map(lambda x: {"task_id": 0})
     ds_harmless_chosen = ds_harmless.map(tokenize, batched=False, num_proc=30)
+
+    ds_harmless_reject = ds_harmless.map(lambda x: {"task_id": 1})
     ds_harmless_reject = ds_harmless.map(reject_tokenize, batched=False, num_proc=30)
     
     if size is not None:
@@ -222,7 +225,7 @@ def build_helpful_dataset(path, tokenizer, split='train', size=None, seed=42):
         sample['response'] = split_text[-1].strip()
         sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
         sample["query"] = tokenizer.decode(sample["input_ids"])
-        sample["task_id"] = torch.tensor([0], dtype=torch.long)
+        sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
 
     def reject_tokenize(sample):
@@ -232,10 +235,13 @@ def build_helpful_dataset(path, tokenizer, split='train', size=None, seed=42):
         sample['response'] = split_text[-1].strip()
         sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
         sample["query"] = tokenizer.decode(sample["input_ids"])
-        sample["task_id"] = torch.tensor([1], dtype=torch.long)
+        sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
-
+    
+    ds_helpful_chosen = ds_helpful.map(lambda x: {"task_id": 0})
     ds_helpful_chosen = ds_helpful.map(tokenize, batched=False, num_proc=30)
+
+    ds_helpful_reject = ds_helpful.map(lambda x: {"task_id": 1})
     ds_helpful_reject = ds_helpful.map(reject_tokenize, batched=False, num_proc=30)
     
     if size is not None:

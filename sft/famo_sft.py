@@ -33,7 +33,7 @@ model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 class ScriptArguments:
     log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
     save_directory: Optional[str] = field(default='./logs_trl/')
-    learning_rate: Optional[float] = field(default=5e-5, metadata={"help": "the learning rate"})
+    learning_rate: Optional[float] = field(default=2e-5, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the number of gradient accumulation steps"})
     load_in_8bit: Optional[bool] = field(default=True, metadata={"help": "loading model in 8 bit or bfloat16"})

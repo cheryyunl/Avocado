@@ -33,14 +33,14 @@ model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 class ScriptArguments:
     log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
     save_directory: Optional[str] = field(default='./logs_trl/')
-    learning_rate: Optional[float] = field(default=2e-5, metadata={"help": "the learning rate"})
+    learning_rate: Optional[float] = field(default=5e-5, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the number of gradient accumulation steps"})
     load_in_8bit: Optional[bool] = field(default=True, metadata={"help": "loading model in 8 bit or bfloat16"})
     wandb_name: Optional[str] = field(default='summary_sft_all_bs1_lora64', metadata={"help": "Name for this experiment"})
     exp_type: Optional[str] = field(default='summary', metadata={"help": "exp type, 'summary' or 'assistant' "})
     base_model_name: Optional[str] = field(default="meta-llama/Llama-2-7b-hf", metadata={"help": "local path to the base model or the huggingface id"})
-    loss_scale: Optional[str] = field(default="{1: 1, 3: 0.2}", metadata={"help": "loss scale for objectives"})
+    loss_scale: Optional[str] = field(default="{1: 1, 3: 0.4}", metadata={"help": "loss scale for objectives"})
     ema_alpha: Optional[float] = field(default=0.9, metadata={"help": "EMA smoothing factor"})
     init_steps: Optional[int] = field(default=200, metadata={"help": "Number of steps for EMA initialization"})
 

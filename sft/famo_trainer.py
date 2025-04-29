@@ -366,21 +366,30 @@ class FAMOSFTTrainer(SFTTrainer):
             log_loss = torch.log(1 + all_losses[task_id])
             self.task_loss_stats[task_id].append(log_loss.item())
 
+        tasks = sorted(self.rejected_ids) 
         if (self.step_count + 1) % self.loss_scale_update_freq == 0:
-            if len(self.task_loss_stats[task_id]) > 0:
+            if len(self.task_loss_stats[task_id]) > 0 and task_id in self.rejected_ids:
                 avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
                 self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
                 self.task_loss_stats[task_id] = [] 
-        
-        from torch.distributed import all_gather_object
-        world_size = self.accelerator.num_processes
-        gathered_scale = [None] * world_size
-        all_gather_object(gathered_scale, self.loss_scale)
-
-        if self.accelerator.is_main_process:
-            wandb.log({
-                **{f'task_{task_id}_loss_scale': scale for task_id, scale in enumerate(gathered_scale)},
-            })
+                new_scale = self.loss_scale[task_id]
+            else:
+                new_scale = 0.0
+                avg_log_loss = 0.0
+            
+            scale_info = torch.zeros(2 * len(tasks), device=loss.device)
+            if task_id in tasks:
+                idx = tasks.index(task_id)
+                scale_info[2*idx]     = new_scale
+                scale_info[2*idx + 1] = avg_log_loss
+            scale_info = self.accelerator.reduce(scale_info, "sum")
+            
+            if self.accelerator.is_main_process:
+                log_dict = {}
+                for i, task_id in enumerate(tasks):
+                    log_dict[f"task_{task_id}_loss_scale"]   = scale_info[2*i].item()
+                    log_dict[f"task_{task_id}_avg_log_loss"] = scale_info[2*i + 1].item()
+                wandb.log(log_dict, step=self.step_count)
 
         inputs["task_id"] = task_ids
         self.prev_inputs = {k: v.clone() if torch.is_tensor(v) else v for k, v in inputs.items()}

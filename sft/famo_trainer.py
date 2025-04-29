@@ -84,7 +84,7 @@ class FAMOSFTTrainer(SFTTrainer):
         self.ema_alpha = ema_alpha
         self.init_steps = init_steps
 
-        self.loss_scale_update_freq = 10
+        self.loss_scale_update_freq = 100
         self.task_loss_stats = {1: [], 3: []} 
 
         self.min_losses = torch.zeros(n_tasks, device='cuda')
@@ -362,22 +362,21 @@ class FAMOSFTTrainer(SFTTrainer):
             self.accelerator.wait_for_everyone()
             torch.distributed.broadcast(self.w.detach(), src=0)
         
-        if self.accelerator.is_main_process:
-            if task_id in self.rejected_ids:
-                log_loss = torch.log(1 + all_losses[task_id])
-                self.task_loss_stats[task_id].append(log_loss.item())
+        if task_id in self.rejected_ids:
+            log_loss = torch.log(1 + all_losses[task_id])
+            self.task_loss_stats[task_id].append(log_loss.item())
 
-                if (self.step_count + 1) % self.loss_scale_update_freq == 0:
-                    if len(self.task_loss_stats[task_id]) > 0:
-                        avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
-                        self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
-                        self.task_loss_stats[task_id] = [] 
-                        print(f"[DEBUG] Logging to wandb: task_{task_id}_loss_scale={self.loss_scale[task_id]}, avg_log_loss={avg_log_loss}")
+            if (self.step_count + 1) % self.loss_scale_update_freq == 0:
+                if len(self.task_loss_stats[task_id]) > 0:
+                    avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
+                    self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
+                    self.task_loss_stats[task_id] = [] 
+                    
+                    if self.accelerator.is_main_process:
                         wandb.log({
                             f'task_{task_id}_loss_scale': self.loss_scale[task_id],
                             f'task_{task_id}_avg_log_loss': avg_log_loss
                         })
-
 
         inputs["task_id"] = task_ids
         self.prev_inputs = {k: v.clone() if torch.is_tensor(v) else v for k, v in inputs.items()}

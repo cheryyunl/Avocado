@@ -96,7 +96,7 @@ class FAMOSFTTrainer(SFTTrainer):
         current_scale = self.loss_scale.get(task_id, 1.0)
         if log_loss < -1:
             new_scale = current_scale * 0.8
-        elif log_loss > -0.1:
+        elif log_loss > -0.5:
             new_scale = current_scale * 1.2
         else:
             new_scale = current_scale
@@ -371,13 +371,11 @@ class FAMOSFTTrainer(SFTTrainer):
                     avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
                     self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
                     self.task_loss_stats[task_id] = [] 
-                    
-                    if self.accelerator.is_main_process:
-                        wandb.log({
-                            f'task_{task_id}_loss_scale': self.loss_scale[task_id],
-                            f'task_{task_id}_avg_log_loss': avg_log_loss
-                        })
-
+                    wandb.log({
+                        f'task_{task_id}_loss_scale': self.loss_scale[task_id],
+                        f'task_{task_id}_avg_log_loss': avg_log_loss
+                    })
+        
         inputs["task_id"] = task_ids
         self.prev_inputs = {k: v.clone() if torch.is_tensor(v) else v for k, v in inputs.items()}
         self.prev_loss = all_losses.clone()

@@ -84,7 +84,7 @@ class FAMOSFTTrainer(SFTTrainer):
         self.ema_alpha = ema_alpha
         self.init_steps = init_steps
 
-        self.loss_scale_update_freq = 100
+        self.loss_scale_update_freq = 10
         self.task_loss_stats = {1: [], 3: []} 
 
         self.min_losses = torch.zeros(n_tasks, device='cuda')

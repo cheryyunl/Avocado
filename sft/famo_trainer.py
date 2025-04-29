@@ -97,9 +97,9 @@ class FAMOSFTTrainer(SFTTrainer):
         if log_loss < -1:
             new_scale = current_scale * 0.8
         elif log_loss > -1 and log_loss <=0:
-            new_scale = current_scale * 1.2
+            new_scale = current_scale
         elif log_loss > 0:
-            new_scale = current_scale * 1.5
+            new_scale = current_scale * 1.2
         new_scale = max(0.2, min(1.0, new_scale))
         self.loss_scale[task_id] = new_scale
         return new_scale
@@ -372,6 +372,7 @@ class FAMOSFTTrainer(SFTTrainer):
                         avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
                         self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
                         self.task_loss_stats[task_id] = [] 
+                        print(f"[DEBUG] Logging to wandb: task_{task_id}_loss_scale={self.loss_scale[task_id]}, avg_log_loss={avg_log_loss}")
                         wandb.log({
                             f'task_{task_id}_loss_scale': self.loss_scale[task_id],
                             f'task_{task_id}_avg_log_loss': avg_log_loss

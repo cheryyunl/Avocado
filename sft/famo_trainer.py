@@ -96,10 +96,10 @@ class FAMOSFTTrainer(SFTTrainer):
         current_scale = self.loss_scale.get(task_id, 1.0)
         if log_loss < -1:
             new_scale = current_scale * 0.8
-        elif log_loss > -1 and log_loss <=0:
-            new_scale = current_scale
         elif log_loss > 0:
             new_scale = current_scale * 1.2
+        else:
+            new_scale = current_scale
         new_scale = max(0.2, min(1.0, new_scale))
         self.loss_scale[task_id] = new_scale
         return new_scale

@@ -16,6 +16,7 @@ from accelerate import Accelerator
 from multi_task_utils import build_mt_dataset, build_mt_reject_dataset, build_mt_all_dataset, MTDataCollatorForCompletionOnlyLM
 from famo_trainer import FAMOSFTTrainer
 from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions, build_dataset, build_base_dataset
+from transformers import TrainerCallback
 tqdm.pandas()
 
 torch.cuda.empty_cache()
@@ -28,6 +29,12 @@ summary_dataset_path = 'openai/summarize_from_feedback'
 # model_path = '/work/hdd/bcwu/cheryll/Llama-2-7b-hf'
 model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 
+# 添加自定义回调来跟踪组合损失
+class CustomCallback(TrainerCallback):
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs and 'task_0_loss' in logs and 'task_2_loss' in logs:
+            combined_loss = logs['task_0_loss'] + logs['task_2_loss']
+            wandb.log({"multi_objective_loss": combined_loss}, step=state.global_step)
 
 @dataclass
 class ScriptArguments:
@@ -43,6 +50,9 @@ class ScriptArguments:
     loss_scale: Optional[str] = field(default="{1: 1, 3: 0.4}", metadata={"help": "loss scale for objectives"})
     ema_alpha: Optional[float] = field(default=0.9, metadata={"help": "EMA smoothing factor"})
     init_steps: Optional[int] = field(default=200, metadata={"help": "Number of steps for EMA initialization"})
+    w_lr: Optional[float] = field(default=1e-3, metadata={"help": "learning rate for w"})
+    gamma: Optional[float] = field(default=0.01, metadata={"help": "gamma for famo"})
+    famo_update_frequency: Optional[int] = field(default=10, metadata={"help": "famo update frequency"})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -65,27 +75,42 @@ if accelerator.is_main_process:
 else:
     wandb.init(mode="disabled")
 
+# 在 parser.parse_args_into_dataclasses()[0] 后添加
+if script_args.log_with == 'wandb':
+    # 允许wandb sweep参数覆盖命令行参数
+    if wandb.run is not None:
+        for key, value in wandb.config.items():
+            if hasattr(script_args, key):
+                setattr(script_args, key, value)
+        
+        # 如果是sweep，使用run_id作为wandb_name一部分，避免名称冲突
+        if wandb.run.sweep_id:
+            script_args.wandb_name = f"{script_args.wandb_name}_sweep_{wandb.run.id}"
+            # 更新training_args的输出目录
+            os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
+
+# 修改training_args部分，改成5000步用于sweep
 training_args = TrainingArguments(
-        max_steps=20000,  
-        output_dir=os.path.join(script_args.save_directory, script_args.wandb_name),
-        dataloader_drop_last=True,
-        eval_steps=30000,
-        save_steps=10000,
-        logging_steps=10,
-        save_strategy='steps',
-        per_device_train_batch_size=script_args.batch_size,
-        per_device_eval_batch_size=script_args.batch_size,
-        learning_rate=script_args.learning_rate,
-        lr_scheduler_type="linear",
-        warmup_steps=100,
-        gradient_accumulation_steps=script_args.gradient_accumulation_steps,
-        gradient_checkpointing=False,
-        weight_decay=0.01,
-        run_name=script_args.wandb_name,
-        report_to='wandb' if (script_args.log_with == 'wandb' and accelerator.is_main_process) else 'none',
-        ddp_find_unused_parameters=False,
-        remove_unused_columns=True,
-    )
+    max_steps=5000,  # 改为5000用于sweep
+    output_dir=os.path.join(script_args.save_directory, script_args.wandb_name),
+    dataloader_drop_last=True,
+    eval_steps=30000,
+    save_steps=10000,
+    logging_steps=10,
+    save_strategy='steps',
+    per_device_train_batch_size=script_args.batch_size,
+    per_device_eval_batch_size=script_args.batch_size,
+    learning_rate=script_args.learning_rate,
+    lr_scheduler_type="linear",
+    warmup_steps=100,
+    gradient_accumulation_steps=script_args.gradient_accumulation_steps,
+    gradient_checkpointing=False,
+    weight_decay=0.01,
+    run_name=script_args.wandb_name,
+    report_to='wandb' if (script_args.log_with == 'wandb' and accelerator.is_main_process) else 'none',
+    ddp_find_unused_parameters=False,
+    remove_unused_columns=True,
+)
 
 process_id = Accelerator().local_process_index 
 gpu_id = process_id 
@@ -171,9 +196,9 @@ trainer = FAMOSFTTrainer(
     dataset_text_field='query',
     data_collator=collator,
     n_tasks=n_tasks, 
-    gamma=0.01,
-    w_lr=1e-3,
-    famo_update_frequency=10,
+    gamma=script_args.gamma,
+    w_lr=script_args.w_lr,
+    famo_update_frequency=script_args.famo_update_frequency,
     rejected_ids=rejected_ids,
     loss_scale=script_args.loss_scale,
     ema_alpha=script_args.ema_alpha,
@@ -181,6 +206,10 @@ trainer = FAMOSFTTrainer(
 )
 
 trainer = accelerator.prepare(trainer)
+
+# 添加回调
+if script_args.log_with == 'wandb':
+    trainer.add_callback(CustomCallback())
 
 print("Training SFT model with multi-objective alignment")
 trainer.train()

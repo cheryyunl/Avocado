@@ -1,0 +1,27 @@
+program: famo_sft.py
+method: random
+metric:
+  name: multi_objective_loss
+  goal: minimize
+early_terminate:
+  type: hyperband
+  min_iter: 100
+parameters:
+  w_lr:
+    values: [0.001, 0.005, 0.01, 0.05]
+  gamma:
+    values: [0.001, 0.01, 0.1]
+  famo_update_frequency:
+    values: [2, 5, 10, 20]
+  ema_alpha:
+    values: [0.8, 0.9, 0.95]
+  init_steps:
+    values: [100, 200, 500]
+  loss_scale:
+    values: ["{1: 1, 3: 0.4}", "{1: 1, 3: 0.5}", "{1: 1, 3: 0.6}"]
+  learning_rate:
+    distribution: uniform
+    min: 0.00001
+    max: 0.00005
+  max_steps:
+    value: 2000

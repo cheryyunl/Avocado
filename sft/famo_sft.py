@@ -29,7 +29,6 @@ summary_dataset_path = 'openai/summarize_from_feedback'
 # model_path = '/work/hdd/bcwu/cheryll/Llama-2-7b-hf'
 model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 
-# 添加自定义回调来跟踪组合损失
 class CustomCallback(TrainerCallback):
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs and 'task_0_loss' in logs and 'task_2_loss' in logs:
@@ -90,7 +89,7 @@ if script_args.log_with == 'wandb':
             os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
 
 training_args = TrainingArguments(
-    max_steps=2000,  
+    max_steps=20000,  
     output_dir=os.path.join(script_args.save_directory, script_args.wandb_name),
     dataloader_drop_last=True,
     eval_steps=30000,

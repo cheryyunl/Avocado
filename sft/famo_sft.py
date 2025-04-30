@@ -89,9 +89,8 @@ if script_args.log_with == 'wandb':
             # 更新training_args的输出目录
             os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
 
-# 修改training_args部分，改成5000步用于sweep
 training_args = TrainingArguments(
-    max_steps=5000,  # 改为5000用于sweep
+    max_steps=2000,  
     output_dir=os.path.join(script_args.save_directory, script_args.wandb_name),
     dataloader_drop_last=True,
     eval_steps=30000,

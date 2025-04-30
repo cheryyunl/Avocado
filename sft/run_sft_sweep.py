@@ -34,4 +34,4 @@ def agent_function():
     subprocess.run(cmd, shell=True)
 
 # 启动agent
-wandb.agent(sweep_id, function=agent_function, count=10)  # 运行10次试验
+wandb.agent(sweep_id, function=agent_function, count=20)  # 运行10次试验

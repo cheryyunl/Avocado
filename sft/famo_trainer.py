@@ -363,8 +363,7 @@ class FAMOSFTTrainer(SFTTrainer):
             torch.distributed.broadcast(self.w.detach(), src=0)
         
         if task_id in self.rejected_ids:
-            log_loss = torch.log(1 + all_losses[task_id])
-            self.task_loss_stats[task_id].append(log_loss.item())
+            self.task_loss_stats[task_id].append(all_losses[task_id].item())
 
         tasks = sorted(self.rejected_ids) 
         if (self.step_count + 1) % self.loss_scale_update_freq == 0:

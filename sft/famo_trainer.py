@@ -368,10 +368,11 @@ class FAMOSFTTrainer(SFTTrainer):
 
         tasks = sorted(self.rejected_ids) 
         if (self.step_count + 1) % self.loss_scale_update_freq == 0:
-            if len(self.task_loss_stats[task_id]) > 0 and task_id in self.rejected_ids:
-                avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
-                self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
-                self.task_loss_stats[task_id] = [] 
+            if task_id in self.rejected_ids:
+                if len(self.task_loss_stats[task_id]) > 0:
+                    avg_log_loss = sum(self.task_loss_stats[task_id]) / len(self.task_loss_stats[task_id])
+                    self.loss_scale[task_id] = self.adjust_loss_scale(task_id, avg_log_loss)
+                    self.task_loss_stats[task_id] = [] 
                 new_scale = self.loss_scale[task_id]
             else:
                 new_scale = 0.0

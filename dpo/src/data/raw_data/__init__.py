@@ -1,5 +1,5 @@
 from .utils import RawDatasetPreprocessor
-from .hh_rlhf import HhRlhfRDP
+from .hh_rlhf import HhRlhfRDP, MTHhRlhfRDP
 from .safe_rlhf import (
     PKUSafeRlhfRDP, PKUSafeRlhf10KRDP,
 )

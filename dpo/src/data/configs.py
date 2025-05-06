@@ -6,6 +6,7 @@ from src.data.raw_data.helpsteer import HelpSteerRDP
 from .raw_data import (
     RawDatasetPreprocessor,
     HhRlhfRDP,
+    MTHhRlhfRDP,
     PKUSafeRlhfRDP, PKUSafeRlhf10KRDP,
     SHPRDP,
     StackExchangePairedRDP,
@@ -18,7 +19,8 @@ from .raw_data.utils import DEFAULT_PROMPT_TEMPLATE
 
 REAL_DATASET_CONFIGS: Dict[str, RawDatasetPreprocessor] = {
     ##### hh-rlhf (https://huggingface.co/datasets/Anthropic/hh-rlhf) #####
-    "Anthropic/hh-rlhf": HhRlhfRDP,
+    "Anthropic/hh-rlhf": MTHhRlhfRDP,
+    "Anthropic/hh-rlhf-mt": MTHhRlhfRDP,
 
     ##### PKU-SafeRLHF (https://huggingface.co/datasets/PKU-Alignment/PKU-SafeRLHF) #####
     **{

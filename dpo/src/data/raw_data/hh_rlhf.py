@@ -38,7 +38,10 @@ class HhRlhfRDP(RawDatasetPreprocessor):
         all_datasets = []
 
         for data_dir in self.subdatasets:
-            ds = load_dataset(self.path, data_dir=data_dir, split=split)
+            if split == "validation":
+                ds = load_dataset(self.path, data_dir=data_dir, split='test')
+            else:
+                ds = load_dataset(self.path, data_dir=data_dir, split=split)
             all_datasets.append(ds)
             print(f"Successfully loaded {data_dir}, split: {split}, size: {len(ds)}")
         

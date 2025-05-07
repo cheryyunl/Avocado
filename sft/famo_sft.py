@@ -14,10 +14,10 @@ import pandas as pd
 import wandb
 from accelerate import Accelerator
 from multi_task_utils import build_mt_dataset, build_mt_reject_dataset, build_mt_all_dataset, build_harmless_dataset, build_helpful_dataset, MTDataCollatorForCompletionOnlyLM
-from helpsteer_utils import build_helpsteer_positive_dataset, build_helpsteer_negative_dataset, HSDataCollatorForCompletionOnlyLM
+from helpsteer_utils import build_helpsteer_dataset, build_helpsteer_positive_dataset, build_helpsteer_negative_dataset, HSDataCollatorForCompletionOnlyLM
 from famo_trainer import FAMOSFTTrainer
-from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions, build_dataset, build_base_dataset
-from transformers import TrainerCallback, default_data_collator
+from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions
+from transformers import TrainerCallback
 tqdm.pandas()
 
 torch.cuda.empty_cache()
@@ -76,18 +76,14 @@ if accelerator.is_main_process:
 else:
     wandb.init(mode="disabled")
 
-# 在 parser.parse_args_into_dataclasses()[0] 后添加
 if script_args.log_with == 'wandb':
-    # 允许wandb sweep参数覆盖命令行参数
     if wandb.run is not None:
         for key, value in wandb.config.items():
             if hasattr(script_args, key):
                 setattr(script_args, key, value)
         
-        # 如果是sweep，使用run_id作为wandb_name一部分，避免名称冲突
         if wandb.run.sweep_id:
             script_args.wandb_name = f"{script_args.wandb_name}_sweep_{wandb.run.id}"
-            # 更新training_args的输出目录
             os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
 
 training_args = TrainingArguments(
@@ -183,6 +179,11 @@ elif exp_type == 'helpsteer_positive':
     train_dataset = build_helpsteer_positive_dataset(helpsteer_dataset_path, tokenizer, split='train') 
     collator = HSDataCollatorForCompletionOnlyLM(tokenizer=tokenizer, mlm=False)
     rejected_ids = None
+    n_tasks = 4
+elif exp_type == 'helpsteer_mixed':
+    train_dataset = build_helpsteer_dataset(helpsteer_dataset_path, tokenizer, split='train') 
+    collator = HSDataCollatorForCompletionOnlyLM(tokenizer=tokenizer, mlm=False)
+    rejected_ids = [3]
     n_tasks = 4
 elif exp_type == 'helpsteer_negative':
     train_dataset = build_helpsteer_negative_dataset(helpsteer_dataset_path, tokenizer, split='train') 

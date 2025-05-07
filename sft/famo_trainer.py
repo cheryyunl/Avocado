@@ -9,7 +9,7 @@ from datasets import Dataset
 from datasets.arrow_writer import SchemaInferenceError
 from datasets.builder import DatasetGenerationError
 from torch.utils.data import DataLoader, Dataset, IterableDataset, RandomSampler, SequentialSampler, DistributedSampler
-from transformers.utils import is_sagemaker_mp_enabled, is_datasets_available, is_torch_mlu_available, is_torch_mps_available, is_torch_musa_available, is_torch_npu_available, is_torch_xpu_available
+from transformers.utils import is_sagemaker_mp_enabled, is_datasets_available
 from transformers.training_args import OptimizerNames
 from transformers.trainer_utils import seed_worker
 from multi_task_utils import split_dataset

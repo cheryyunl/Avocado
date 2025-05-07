@@ -25,6 +25,7 @@ def build_helpsteer_positive_dataset(helpsteer_path, tokenizer, split='train', s
         response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
         sample["input_ids"] = prompt_ids + response_ids
         sample["labels"] = [-100] * len(prompt_ids) + response_ids  
+        sample["query"] = tokenizer.decode(sample["input_ids"])
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
     
@@ -63,6 +64,7 @@ def build_helpsteer_negative_dataset(helpsteer_path, tokenizer, split='train', s
         response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
         sample["input_ids"] = prompt_ids + response_ids
         sample["labels"] = [-100] * len(prompt_ids) + response_ids   
+        sample["query"] = tokenizer.decode(sample["input_ids"])
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
     ds_processed = ds.map(tokenize, batched=False, num_proc=30)

@@ -49,7 +49,7 @@ class ScriptArguments:
     base_model_name: Optional[str] = field(default="meta-llama/Llama-2-7b-hf", metadata={"help": "local path to the base model or the huggingface id"})
     loss_scale: Optional[str] = field(default="{1: 1, 3: 0.4}", metadata={"help": "loss scale for objectives"})
     ema_alpha: Optional[float] = field(default=0.9, metadata={"help": "EMA smoothing factor"})
-    init_steps: Optional[int] = field(default=100, metadata={"help": "Number of steps for EMA initialization"})
+    init_steps: Optional[int] = field(default=200, metadata={"help": "Number of steps for EMA initialization"})
     w_lr: Optional[float] = field(default=1e-3, metadata={"help": "learning rate for w"})
     gamma: Optional[float] = field(default=0.01, metadata={"help": "gamma for famo"})
     famo_update_frequency: Optional[int] = field(default=10, metadata={"help": "famo update frequency"})

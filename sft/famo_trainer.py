@@ -225,7 +225,6 @@ class FAMOSFTTrainer(SFTTrainer):
             dataloader_params["sampler"] = self.sampler 
             dataloader_params["drop_last"] = self.args.dataloader_drop_last
             dataloader_params["worker_init_fn"] = seed_worker
-            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
 

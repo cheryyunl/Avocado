@@ -135,13 +135,21 @@ class HSDataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
     def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
         task_ids = None
         if all('task_id' in example for example in examples):
-            task_ids = [example.pop('task_id') for example in examples]
+            task_ids = []
+            for example in examples:
+                tid = example.pop('task_id')
+                if isinstance(tid, torch.Tensor):
+                    tid = tid.item() if tid.numel() == 1 else tid[0].item()
+                task_ids.append(tid)
         
+        for example in examples:
+            if "labels" in example and isinstance(example["labels"], list):
+                if any(isinstance(x, list) for x in example["labels"]):
+                    example["labels"] = [x[0] if isinstance(x, list) and x else x for x in example["labels"]]
+
         batch = super().torch_call(examples)
         if task_ids is not None:
             batch['task_id'] = torch.tensor(task_ids, dtype=torch.long)
-        
         return batch
-
 
 

@@ -216,8 +216,7 @@ class FAMOSFTTrainer(SFTTrainer):
             "batch_size": self._train_batch_size,
             "collate_fn": data_collator,
             "num_workers": self.args.dataloader_num_workers,
-            "pin_memory": self.args.dataloader_pin_memory,
-            "persistent_workers": self.args.dataloader_persistent_workers,
+            "pin_memory": self.args.dataloader_pin_memory
         }
 
         self.sampler = TaskSpecificSampler(train_dataset, self.n_tasks)

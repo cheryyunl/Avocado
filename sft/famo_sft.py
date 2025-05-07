@@ -181,12 +181,12 @@ elif exp_type == 'assistant_helpful':
     n_tasks = 2
 elif exp_type == 'helpsteer_positive':
     train_dataset = build_helpsteer_positive_dataset(helpsteer_dataset_path, tokenizer, split='train') 
-    collator = HSDataCollatorForCompletionOnlyLM()
+    collator = HSDataCollatorForCompletionOnlyLM(tokenizer=tokenizer, mlm=False)
     rejected_ids = None
     n_tasks = 4
 elif exp_type == 'helpsteer_negative':
     train_dataset = build_helpsteer_negative_dataset(helpsteer_dataset_path, tokenizer, split='train') 
-    collator = HSDataCollatorForCompletionOnlyLM()
+    collator = HSDataCollatorForCompletionOnlyLM(tokenizer=tokenizer, mlm=False)
     rejected_ids = [0,1,2,3]
     n_tasks = 4
 else:

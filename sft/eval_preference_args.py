@@ -65,9 +65,13 @@ class ARGSAdapter:
         self.device = device
         self.rm_device = rm_device
         self.debug = debug
+
+        for i, rm_tokenizer in enumerate(self.rm_tokenizers):
+            if rm_tokenizer.pad_token is None:
+                rm_tokenizer.pad_token = rm_tokenizer.eos_token
+                rm_tokenizer.padding_side = 'right'
         
     def generate_step(self, mout, input_ids, pre_screen_beam_width=20, weights=None, temperature=0.7, rm_cached=None):
-        """执行一步ARGS生成，支持多个reward models"""
         if weights is None:
             weights = [1.0/self.num_rewards] * self.num_rewards
             
@@ -301,12 +305,10 @@ def main():
         drop_last=True, 
         collate_fn=data_collator
     )
-    
-    # 准备加速器
+
     accelerator = Accelerator()
     model, valid_data_loader = accelerator.prepare(model, valid_data_loader)
 
-    # 如果使用ARGS，创建ARGS适配器
     if script_args.use_args:
         args_adapter = ARGSAdapter(
             model=accelerator.unwrap_model(model),

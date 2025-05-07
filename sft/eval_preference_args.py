@@ -65,11 +65,6 @@ class ARGSAdapter:
         self.device = device
         self.rm_device = rm_device
         self.debug = debug
-
-        for i, rm_tokenizer in enumerate(self.rm_tokenizers):
-            if rm_tokenizer.pad_token is None:
-                rm_tokenizer.pad_token = rm_tokenizer.eos_token
-                rm_tokenizer.padding_side = 'right'
         
     def generate_step(self, mout, input_ids, pre_screen_beam_width=20, weights=None, temperature=0.7, rm_cached=None):
         if weights is None:
@@ -245,7 +240,6 @@ def main():
     
     # 加载语言模型和tokenizer
     tokenizer = load_main_tokenizer(tokenizer_name)
-    tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         base_model_name, 
         torch_dtype=torch.bfloat16,

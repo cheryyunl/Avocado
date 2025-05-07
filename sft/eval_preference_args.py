@@ -245,6 +245,8 @@ def main():
         torch_dtype=torch.bfloat16,
         device_map=gpu_id, 
     )
+    tokenizer.pad_token = tokenizer.eos_token
+    model.config.pad_token_id = model.config.eos_token_id
     model.resize_token_embeddings(len(tokenizer))
     if check_lora_in_model_path(model, base_model_name):
         model = PeftModel.from_pretrained(model, base_model_name)

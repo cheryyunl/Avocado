@@ -20,7 +20,9 @@ class RewardModels():
         for i in range(self.num_rewards):
             self.reward_models.append(load_reward_model(self.reward_model_path_list[i], gpu_id_list[i]))
             self.rm_tokenizers.append(AutoTokenizer.from_pretrained(self.rm_tokenizer_path_list[i]))
-    
+            self.rm_tokenizers[i].pad_token = self.rm_tokenizers[i].eos_token
+            self.rm_tokenizers[i].config.pad_token_id = self.rm_tokenizers[i].config.eos_token_id
+
         
     def get_reward_model_scores(self, queries_responses, summary_fun=None):
         texts_for_rewards = []

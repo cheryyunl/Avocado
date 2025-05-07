@@ -127,6 +127,7 @@ lora_config = LoraConfig(
 )
 
 tokenizer = load_main_tokenizer(tokenizer_name)
+tokenizer.pad_token = tokenizer.eos_token
 if script_args.load_in_8bit:
     model = AutoModelForCausalLM.from_pretrained(
         base_model_name, 

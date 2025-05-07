@@ -241,6 +241,7 @@ def main():
     
     # 加载语言模型和tokenizer
     tokenizer = load_main_tokenizer(tokenizer_name)
+    tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         base_model_name, 
         torch_dtype=torch.bfloat16,

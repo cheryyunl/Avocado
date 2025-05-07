@@ -14,7 +14,7 @@ import pandas as pd
 import wandb
 from accelerate import Accelerator
 from multi_task_utils import build_mt_dataset, build_mt_reject_dataset, build_mt_all_dataset, build_harmless_dataset, build_helpful_dataset, MTDataCollatorForCompletionOnlyLM
-from helpsteer_utils import build_helpsteer_positive_dataset, build_helpsteer_negative_dataset
+from helpsteer_utils import build_helpsteer_positive_dataset, build_helpsteer_negative_dataset, HSDataCollatorForCompletionOnlyLM
 from famo_trainer import FAMOSFTTrainer
 from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions, build_dataset, build_base_dataset
 from transformers import TrainerCallback, default_data_collator
@@ -181,12 +181,12 @@ elif exp_type == 'assistant_helpful':
     n_tasks = 2
 elif exp_type == 'helpsteer_positive':
     train_dataset = build_helpsteer_positive_dataset(helpsteer_dataset_path, tokenizer, split='train') 
-    collator = default_data_collator
+    collator = HSDataCollatorForCompletionOnlyLM()
     rejected_ids = None
     n_tasks = 4
 elif exp_type == 'helpsteer_negative':
     train_dataset = build_helpsteer_negative_dataset(helpsteer_dataset_path, tokenizer, split='train') 
-    collator = default_data_collator
+    collator = HSDataCollatorForCompletionOnlyLM()
     rejected_ids = [0,1,2,3]
     n_tasks = 4
 else:

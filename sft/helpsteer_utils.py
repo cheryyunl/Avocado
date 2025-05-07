@@ -1,6 +1,8 @@
 from datasets import load_dataset, concatenate_datasets
 import torch
 import os
+from transformers import DataCollatorForLanguageModeling
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 def build_helpsteer_positive_dataset(helpsteer_path, tokenizer, split='train', seed=42):
     ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
@@ -79,6 +81,27 @@ def build_helpsteer_negative_dataset(helpsteer_path, tokenizer, split='train', s
     
     return ds_processed
 
+class HSDataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
+    def __init__(
+        self,
+        *args,
+        mlm: bool = False,
+        ignore_index: int = -100,
+        **kwargs,
+    ):
+        super().__init__(*args, mlm=mlm, **kwargs)
+        self.ignore_index = ignore_index
+
+    def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
+        task_ids = None
+        if all('task_id' in example for example in examples):
+            task_ids = [example.pop('task_id') for example in examples]
+        
+        batch = super().torch_call(examples)
+        if task_ids is not None:
+            batch['task_id'] = torch.tensor(task_ids, dtype=torch.long)
+        
+        return batch
 
 
 

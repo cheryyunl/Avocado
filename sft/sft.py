@@ -13,6 +13,7 @@ import pandas as pd
 import wandb
 from accelerate import Accelerator
 from multi_task_utils import build_mt_dataset
+from helpsteer_utils import build_helpsteer_dataset, Instructions_helpsteer
 from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions, build_dataset, build_base_dataset
 tqdm.pandas()
 
@@ -27,7 +28,7 @@ model_path = '/cmlscratch/cheryll/Llama-2-7b-hf'
 class ScriptArguments:
     log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
     save_directory: Optional[str] = field(default='./logs_trl/')
-    learning_rate: Optional[float] = field(default=1.41e-4, metadata={"help": "the learning rate"})
+    learning_rate: Optional[float] = field(default=1e-4, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the number of gradient accumulation steps"})
     load_in_8bit: Optional[bool] = field(default=True, metadata={"help": "loading model in 8 bit or bfloat16"})
@@ -119,10 +120,15 @@ if exp_type == 'assistant':
     # dataset = build_mt_dataset(tokenizer, split='train')  
     response_template_ids = tokenizer.encode(Instructions.response_split, add_special_tokens=False)[1:]  
     collator = DataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
-else:
+elif exp_type == 'summary':
     dataset = build_dataset_summary(summary_dataset_path, tokenizer, split='train')
     response_template_ids = tokenizer.encode(Instructions_summary.response_split, add_special_tokens=False)[1:]  
     collator = DataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+elif exp_type == 'helpsteer':
+    dataset = build_helpsteer_dataset(helpsteer_dataset_path, tokenizer, split='train')
+    response_template_ids = tokenizer.encode(Instructions_helpsteer.response_split, add_special_tokens=False)[1:]  
+    collator = DataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+
 train_dataset = dataset.shuffle()
 print(f"Size of the train set: {len(train_dataset)}")
 

@@ -21,15 +21,13 @@ def build_helpsteer_positive_dataset(helpsteer_path, tokenizer, split='train', s
     ds = concatenate_datasets([ds_helpfulness, ds_correctness, ds_coherence, ds_complexity])
     
     def tokenize(sample):
-        sample['text'] = sample['prompt'] + sample['response']
         prompt_ids = tokenizer.encode(sample['prompt'])
         response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
-        
         sample["input_ids"] = prompt_ids + response_ids
-        sample["labels"] = [-100] * len(prompt_ids) + response_ids
-        sample["query"] = tokenizer.decode(sample["input_ids"])
+        sample["labels"] = [-100] * len(prompt_ids) + response_ids  
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
+    
     ds_processed = ds.map(tokenize, batched=False, num_proc=30)
 
     ds_processed = ds_processed.filter(lambda x: len(x["input_ids"]) <= 1024 and len(x["input_ids"]) >= 8)
@@ -61,16 +59,12 @@ def build_helpsteer_negative_dataset(helpsteer_path, tokenizer, split='train', s
     ds = concatenate_datasets([ds_helpfulness, ds_correctness, ds_coherence, ds_complexity])
     
     def tokenize(sample):
-        sample['text'] = sample['prompt'] + sample['response']
         prompt_ids = tokenizer.encode(sample['prompt'])
         response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
-        
         sample["input_ids"] = prompt_ids + response_ids
-        sample["labels"] = [-100] * len(prompt_ids) + response_ids
-        sample["query"] = tokenizer.decode(sample["input_ids"])
+        sample["labels"] = [-100] * len(prompt_ids) + response_ids   
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
-    
     ds_processed = ds.map(tokenize, batched=False, num_proc=30)
 
     ds_processed = ds_processed.filter(lambda x: len(x["input_ids"]) <= 1024 and len(x["input_ids"]) >= 8)

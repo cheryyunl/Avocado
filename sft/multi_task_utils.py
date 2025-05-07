@@ -118,12 +118,7 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
         split_text = sample['text'].split('\n\nAssistant:')
         sample['prompt'] = '\n\nAssistant:'.join(split_text[:-1]) + ' ' + '\n\nAssistant:'
         sample['response'] = split_text[-1].strip()
-
-        prompt_ids = tokenizer.encode(sample['prompt'])
-        response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
-
-        sample["input_ids"] = prompt_ids + response_ids
-        sample["labels"] = [-100] * len(prompt_ids) + response_ids
+        sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
         sample["query"] = tokenizer.decode(sample["input_ids"])
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample
@@ -133,12 +128,7 @@ def build_mt_all_dataset(path, tokenizer, split='train', size=None, seed=42):
         split_text = sample['text'].split('\n\nAssistant:')
         sample['prompt'] = '\n\nAssistant:'.join(split_text[:-1]) + ' ' + '\n\nAssistant:'
         sample['response'] = split_text[-1].strip()
-        
-        prompt_ids = tokenizer.encode(sample['prompt'])
-        response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
-
-        sample["input_ids"] = prompt_ids + response_ids
-        sample["labels"] = [-100] * len(prompt_ids) + response_ids
+        sample["input_ids"] = tokenizer.encode(sample["text"]) + [tokenizer.eos_token_id]
         sample["query"] = tokenizer.decode(sample["input_ids"])
         sample["task_id"] = torch.tensor([sample["task_id"]], dtype=torch.long)
         return sample

@@ -17,7 +17,7 @@ from multi_task_utils import build_mt_dataset, build_mt_reject_dataset, build_mt
 from helpsteer_utils import build_helpsteer_positive_dataset, build_helpsteer_negative_dataset
 from famo_trainer import FAMOSFTTrainer
 from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions, build_dataset, build_base_dataset
-from transformers import TrainerCallback
+from transformers import TrainerCallback, default_data_collator
 tqdm.pandas()
 
 torch.cuda.empty_cache()
@@ -27,6 +27,7 @@ torch.cuda.empty_cache()
 # define paths for two datasets
 hhrlhf_dataset_path = 'Anthropic/hh-rlhf'
 summary_dataset_path = 'openai/summarize_from_feedback'
+helpsteer_dataset_path = 'cheryyunl/helpsteer'
 # model_path = '/work/hdd/bcwu/cheryll/Llama-2-7b-hf'
 model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 
@@ -179,17 +180,15 @@ elif exp_type == 'assistant_helpful':
     rejected_ids = [1]
     n_tasks = 2
 elif exp_type == 'helpsteer_positive':
-    train_dataset = build_helpsteer_positive_dataset(helpsteer_dataset_path, tokenizer, split='train')
-    response_template_ids = tokenizer.encode(Instructions.response_split, add_special_tokens=False)[1:]  
-    collator = MTDataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+    train_dataset = build_helpsteer_positive_dataset(helpsteer_dataset_path, tokenizer, split='train') 
+    collator = default_data_collator
     rejected_ids = None
     n_tasks = 4
 elif exp_type == 'helpsteer_negative':
-    train_dataset = build_helpsteer_negative_dataset(helpsteer_dataset_path, tokenizer, split='train')
-    response_template_ids = tokenizer.encode(Instructions.response_split, add_special_tokens=False)[1:]  
-    collator = MTDataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+    train_dataset = build_helpsteer_negative_dataset(helpsteer_dataset_path, tokenizer, split='train') 
+    collator = default_data_collator
     rejected_ids = [0,1,2,3]
-    n_tasks = 1
+    n_tasks = 4
 else:
     dataset = build_dataset_summary(summary_dataset_path, tokenizer, split='train')
     response_template_ids = tokenizer.encode(Instructions_summary.response_split, add_special_tokens=False)[1:]  

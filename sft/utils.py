@@ -8,7 +8,7 @@ from peft import PeftModel
 from accelerate import Accelerator
 from transformers import AutoTokenizer, LlamaTokenizer, AutoModelForSequenceClassification
 import torch
-from datasets import load_dataset, disable_caching
+from datasets import load_dataset, disable_caching, concatenate_datasets
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -146,8 +146,6 @@ def build_dataset(path, tokenizer, split='train', size=None):
 
     ds_concat.set_format(type="torch")
     return ds_concat
-from datasets import load_dataset, concatenate_datasets
-import numpy as np
 
 def build_base_dataset(path, tokenizer, split='train', objective=None, size=None, seed=42):
     # Load both harmless and helpful datasets

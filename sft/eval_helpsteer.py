@@ -13,6 +13,7 @@ from trl import set_seed
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
+from helpsteer_utils import build_helpsteer_eval_dataset    
 from utils import load_main_tokenizer, check_lora_in_model_path
 tqdm.pandas()
 
@@ -71,38 +72,6 @@ class HelpSteerRewardModel:
                     all_scores[i].append(output.score[i].cpu().float().item())
         
         return all_scores
-
-def build_helpsteer_dataset(helpsteer_path, tokenizer, split='validation', seed=42):
-    """加载HelpSteer数据集"""
-    # 加载各子集
-    ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
-    ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
-    ds_coherence = load_dataset(helpsteer_path, data_dir="coherence-positive", split=split)
-    ds_complexity = load_dataset(helpsteer_path, data_dir="complexity-negative", split=split)
-    
-    # 合并所有子集
-    combined_dataset = concatenate_datasets([
-        ds_helpfulness, ds_correctness, ds_coherence, ds_complexity
-    ])
-    combined_dataset = combined_dataset.shuffle(seed=seed)
-    
-    def preprocess_function(examples):
-        prompts = examples["prompt"]
-        texts = []
-        
-        for prompt in prompts:
-            # 格式化为Human/Assistant格式
-            text = f"Human: {prompt}\nAssistant: "
-            texts.append(text)
-        
-        tokenized = tokenizer(texts, padding=False, truncation=True)
-        tokenized["original_prompt"] = prompts
-        return tokenized
-    
-    tokenized_dataset = combined_dataset.map(preprocess_function, batched=True)
-    tokenized_dataset = tokenized_dataset.filter(lambda x: len(x["input_ids"]) <= 1024)
-    
-    return tokenized_dataset
 
 def get_clean_response(full_text, prompt):
     """从生成的文本中提取助手的回复"""
@@ -178,7 +147,7 @@ def main():
     
     # 加载评估数据集
     print('Loading evaluation dataset...')
-    valid_dataset = build_helpsteer_dataset(
+    valid_dataset = build_helpsteer_eval_dataset(
         script_args.dataset_path, 
         tokenizer, 
         split=script_args.split

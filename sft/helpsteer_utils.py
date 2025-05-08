@@ -121,6 +121,32 @@ def build_helpsteer_negative_dataset(helpsteer_path, tokenizer, split='train', s
     
     return ds_processed
 
+def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', seed=42):
+    ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
+    ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
+    ds_coherence = load_dataset(helpsteer_path, data_dir="coherence-positive", split=split)
+    ds_complexity = load_dataset(helpsteer_path, data_dir="complexity-negative", split=split)
+
+    ds = concatenate_datasets([ds_helpfulness, ds_correctness, ds_coherence, ds_complexity])
+    ds = ds.shuffle(seed=seed)
+    
+    def tokenize_for_eval(sample):
+        formatted_prompt = f"Human: {sample['prompt']}\nAssistant: "
+        prompt_ids = tokenizer.encode(formatted_prompt, truncation=True, max_length=1024)
+ 
+        sample["input_ids"] = prompt_ids
+        sample["attention_mask"] = [1] * len(prompt_ids)
+        sample["original_prompt"] = sample["prompt"]  # 保存原始prompt用于评估
+        return sample
+
+    ds_processed = ds.map(tokenize_for_eval, remove_columns=[
+        'helpfulness', 'correctness', 'coherence', 'complexity', 'verbosity', 'response'
+    ])
+
+    ds_processed = ds_processed.filter(lambda x: len(x["input_ids"]) <= 1024 and len(x["input_ids"]) >= 8)
+    
+    return ds_processed
+
 class HSDataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
     def __init__(
         self,

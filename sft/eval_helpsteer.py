@@ -13,9 +13,10 @@ from trl import set_seed
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
-from helpsteer_utils import build_helpsteer_eval_dataset    
 from utils import load_main_tokenizer, check_lora_in_model_path
-tqdm.pandas()
+
+# 导入你的build_helpsteer_eval_dataset函数
+from helpsteer_utils import build_helpsteer_eval_dataset
 
 # 定义HelpSteer的属性名称
 HELPSTEER_ATTRIBUTES = [
@@ -24,14 +25,6 @@ HELPSTEER_ATTRIBUTES = [
     'helpsteer-coherence',
     'helpsteer-complexity'
 ]
-
-# 数据集子集名称
-ATTRIBUTE_SUBSETS = {
-    'helpsteer-helpfulness': 'helpfulness-positive',
-    'helpsteer-correctness': 'correctness-positive',
-    'helpsteer-coherence': 'coherence-positive',
-    'helpsteer-complexity': 'complexity-negative'
-}
 
 class HelpSteerRewardModel:
     def __init__(self, model_path, device="cuda"):
@@ -90,7 +83,7 @@ class ScriptArguments:
     save_directory: Optional[str] = field(default='./logs_trl')
     base_model_name: Optional[str] = field(default='./huggingface_models/Llama-2-7b-hf')
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
-    dataset_path: Optional[str] = field(default='cheryyunl/helpsteer', metadata={"help": "Dataset to evaluate on"})
+    dataset_path: Optional[str] = field(default='HelpSteer/help-steer', metadata={"help": "Dataset to evaluate on"})
     reward_model_path: Optional[str] = field(default='nicolinho/QRM-Llama3.1-8B-v2')
     num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
@@ -160,11 +153,20 @@ def main():
     
     print(f"Size of the validation set: {len(valid_dataset)}")
     
+    # 将数据集格式设置为PyTorch格式，但不在此转换为tensor
+    valid_dataset.set_format(type=None)
+    
     # 批处理大小设为1以避免问题
     valid_batch_size = 1
     
-    # 准备数据加载器
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    # 正确配置DataCollator
+    data_collator = DataCollatorWithPadding(
+        tokenizer=tokenizer,
+        padding=True,
+        return_tensors="pt"  # 明确指定返回PyTorch tensor
+    )
+    
+    # 准备DataLoader
     valid_data_loader = DataLoader(
         valid_dataset, 
         batch_size=valid_batch_size, 
@@ -181,7 +183,7 @@ def main():
     original_prompts = []
     
     total_steps = len(valid_dataset) // valid_batch_size // num_processes + 1
-    pbar = tqdm(total=total_steps, desc=f"GPU {gpu_id} evaluating")
+    pbar = tqdm(total=total_steps, desc=f"GPU {gpu_id} generating")
     
     # 生成回复
     with torch.no_grad():

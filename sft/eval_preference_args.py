@@ -222,7 +222,7 @@ class ARGSAdapter:
 
         cached = None
 
-        for _ in range(max_new_tokens):
+        for step_idx in range(max_new_tokens):
             if not unfinished.any():
                 break
                 
@@ -262,7 +262,7 @@ class ARGSAdapter:
                 eos_mask = (curr_input_ids[:, -1] == self.tokenizer.eos_token_id)
                 unfinished = unfinished & ~eos_mask
 
-            if _ % 10 == 0:
+            if step_idx % 10 == 0:
                 torch.cuda.empty_cache()
         
         return curr_input_ids

@@ -2,7 +2,7 @@ import os
 import copy
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict
+from typing import Optional, List
 from accelerate import Accelerator
 import torch
 from datasets import load_dataset, concatenate_datasets
@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from utils import load_main_tokenizer, check_lora_in_model_path
 tqdm.pandas()
 
-# 定义HelpSteer的属性名称 (去掉verbosity)
+# 定义HelpSteer的属性名称
 HELPSTEER_ATTRIBUTES = [
     'helpsteer-helpfulness', 
     'helpsteer-correctness', 
@@ -24,7 +24,7 @@ HELPSTEER_ATTRIBUTES = [
     'helpsteer-complexity'
 ]
 
-# 属性到数据集子集的映射
+# 数据集子集名称
 ATTRIBUTE_SUBSETS = {
     'helpsteer-helpfulness': 'helpfulness-positive',
     'helpsteer-correctness': 'correctness-positive',
@@ -50,6 +50,7 @@ class HelpSteerRewardModel:
         print(f"Loaded HelpSteer model with {self.num_rewards} attributes")
         
     def get_reward_scores(self, query_response_pairs):
+        """评估一批query-response对，返回每个属性的评分"""
         all_scores = [[] for _ in range(self.num_rewards)]
         
         for prompt, response in tqdm(query_response_pairs, desc="Evaluating responses"):
@@ -65,65 +66,49 @@ class HelpSteerRewardModel:
             
             with torch.no_grad():
                 output = self.model(input_ids)
-                # 只获取我们需要的四个属性评分
+                # 获取四个属性评分
                 for i in range(self.num_rewards):
                     all_scores[i].append(output.score[i].cpu().float().item())
         
         return all_scores
 
-def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='test', seed=42):
-    """加载HelpSteer数据集，但只保留prompts用于评估"""
-    datasets = {}
-    
-    # 加载每个属性对应的子集
-    for attr_name, subset_name in ATTRIBUTE_SUBSETS.items():
-        try:
-            dataset = load_dataset(helpsteer_path, data_dir=subset_name, split=split)
-            datasets[attr_name] = dataset
-            print(f"Loaded {len(dataset)} samples for {attr_name}")
-        except Exception as e:
-            print(f"Error loading {attr_name} dataset: {e}")
+def build_helpsteer_dataset(helpsteer_path, tokenizer, split='validation', seed=42):
+    """加载HelpSteer数据集"""
+    # 加载各子集
+    ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
+    ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
+    ds_coherence = load_dataset(helpsteer_path, data_dir="coherence-positive", split=split)
+    ds_complexity = load_dataset(helpsteer_path, data_dir="complexity-negative", split=split)
     
     # 合并所有子集
-    all_datasets = []
-    for attr_name, dataset in datasets.items():
-        dataset = dataset.add_column("attribute", [attr_name] * len(dataset))
-        all_datasets.append(dataset)
-    
-    combined_dataset = concatenate_datasets(all_datasets)
+    combined_dataset = concatenate_datasets([
+        ds_helpfulness, ds_correctness, ds_coherence, ds_complexity
+    ])
     combined_dataset = combined_dataset.shuffle(seed=seed)
     
     def preprocess_function(examples):
         prompts = examples["prompt"]
-        attributes = examples["attribute"]
         texts = []
         
         for prompt in prompts:
-            # 只保留prompt部分用于生成
+            # 格式化为Human/Assistant格式
             text = f"Human: {prompt}\nAssistant: "
             texts.append(text)
         
         tokenized = tokenizer(texts, padding=False, truncation=True)
-        
-        # 添加原始prompt和属性用于后续评估
         tokenized["original_prompt"] = prompts
-        tokenized["attribute"] = attributes
         return tokenized
     
     tokenized_dataset = combined_dataset.map(preprocess_function, batched=True)
-    
-    # 过滤太长的样本
     tokenized_dataset = tokenized_dataset.filter(lambda x: len(x["input_ids"]) <= 1024)
     
     return tokenized_dataset
 
 def get_clean_response(full_text, prompt):
     """从生成的文本中提取助手的回复"""
-    # 移除prompt部分
     if full_text.startswith(prompt):
         response = full_text[len(prompt):]
     else:
-        # 尝试不同的分割方法
         if "Assistant:" in full_text:
             response = full_text.split("Assistant:", 1)[1]
         else:
@@ -138,68 +123,78 @@ class ScriptArguments:
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='HelpSteer/help-steer', metadata={"help": "Dataset to evaluate on"})
     reward_model_path: Optional[str] = field(default='nicolinho/QRM-Llama3.1-8B-v2')
-    num_samples: Optional[int] = field(default=100, metadata={"help": "Number of samples to evaluate per attribute"})
+    num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
+    split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
 
 def main():
     parser = HfArgumentParser(ScriptArguments)
     script_args = parser.parse_args_into_dataclasses()[0]
     base_model_name = script_args.base_model_name
     tokenizer_name = script_args.base_model_name
-    print('base model: ', base_model_name)
+    print('Base model: ', base_model_name)
     
-    process_id = Accelerator().local_process_index 
-    gpu_id = process_id 
-    print('process: {}, model gpu id: {}'.format(process_id, gpu_id))
+    # 获取进程ID和GPU配置
+    accelerator = Accelerator()
+    process_id = accelerator.local_process_index 
+    num_processes = accelerator.num_processes
+    gpu_id = process_id
+    print(f'Process: {process_id}/{num_processes}, model GPU ID: {gpu_id}')
     
-    # 初始化HelpSteer reward model
-    reward_model = HelpSteerRewardModel(script_args.reward_model_path, device=f"cuda:{gpu_id}")
+    # 创建输出目录
     os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
     
+    # 设置随机种子
     set_seed(8888)
+    
+    # 加载tokenizer和模型
     tokenizer = load_main_tokenizer(tokenizer_name)
+    tokenizer.padding_side = "left"  # 重要：设置padding方向
+    
+    # 使用accelerate来加载模型到适当的GPU
     model = AutoModelForCausalLM.from_pretrained(
         base_model_name, 
         torch_dtype=torch.bfloat16,
-        device_map=gpu_id, 
+        device_map={"": gpu_id}
     )
     model.resize_token_embeddings(len(tokenizer))
+    
+    # 检查是否使用了LoRA
     if check_lora_in_model_path(model, base_model_name):
         model = PeftModel.from_pretrained(model, base_model_name)
     if hasattr(model, 'merge_and_unload'):
         model = model.merge_and_unload()
     
+    # 加载HelpSteer reward模型
+    reward_model = HelpSteerRewardModel(script_args.reward_model_path, device=f"cuda:{gpu_id}")
+    
+    # 生成参数
     generation_kwargs = {
-        "max_new_tokens": 128, 
+        "max_new_tokens": 128,
         "min_length": -1,
         "top_k": 0.0,
         "top_p": 0.9, 
         "do_sample": True,
     }
     
+    # 加载评估数据集
     print('Loading evaluation dataset...')
-    tokenizer.padding_side = "left"
-    
-    valid_dataset = build_helpsteer_eval_dataset(
+    valid_dataset = build_helpsteer_dataset(
         script_args.dataset_path, 
         tokenizer, 
-        split='validation'
+        split=script_args.split
     )
-
-    if script_args.num_samples > 0:
-        attr_datasets = []
-        for attr in ATTRIBUTE_SUBSETS.keys():
-            attr_subset = valid_dataset.filter(lambda x: x["attribute"] == attr)
-            if len(attr_subset) > script_args.num_samples:
-                attr_subset = attr_subset.select(range(script_args.num_samples))
-            attr_datasets.append(attr_subset)
-        
-        valid_dataset = concatenate_datasets(attr_datasets)
+    
+    # 如果指定了样本数量，随机选择指定数量的样本
+    if script_args.num_samples > 0 and len(valid_dataset) > script_args.num_samples:
         valid_dataset = valid_dataset.shuffle(seed=8888)
+        valid_dataset = valid_dataset.select(range(script_args.num_samples))
     
     print(f"Size of the validation set: {len(valid_dataset)}")
     
-    valid_batch_size = 1  
+    # 批处理大小设为1以避免问题
+    valid_batch_size = 1
     
+    # 准备数据加载器
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     valid_data_loader = DataLoader(
         valid_dataset, 
@@ -208,22 +203,25 @@ def main():
         collate_fn=data_collator
     )
     
-    accelerator = Accelerator()
+    # 使用accelerator准备模型和数据加载器
     model, valid_data_loader = accelerator.prepare(model, valid_data_loader)
-
+    
+    # 评估循环
     full_response_tensors = []
     full_prompts = []
     original_prompts = []
-    sample_attributes = []
     
-    pbar = tqdm(total=len(valid_dataset) // valid_batch_size // accelerator.num_processes + 1)
+    total_steps = len(valid_dataset) // valid_batch_size // num_processes + 1
+    pbar = tqdm(total=total_steps, desc=f"GPU {gpu_id} evaluating")
+    
+    # 生成回复
     with torch.no_grad():
         for i, batch in enumerate(valid_data_loader):
+            # 保存原始prompt
             if 'original_prompt' in batch:
                 original_prompts.extend(batch['original_prompt'])
-            if 'attribute' in batch:
-                sample_attributes.extend(batch['attribute'])
             
+            # 生成回复
             response_tensors = accelerator.unwrap_model(model).generate(
                 batch['input_ids'], 
                 attention_mask=batch['attention_mask'], 
@@ -234,46 +232,48 @@ def main():
             full_prompts.extend(batch['input_ids'])
             pbar.update(1)
     
+    # 解码生成的文本
     input_texts = tokenizer.batch_decode(full_prompts, skip_special_tokens=True)
     full_responses = tokenizer.batch_decode(full_response_tensors, skip_special_tokens=True)
-
+    
+    # 提取助手回复部分
     clean_responses = []
-    for i, (full_text, prompt) in enumerate(zip(full_responses, input_texts)):
+    for full_text, prompt in zip(full_responses, input_texts):
         response = get_clean_response(full_text, prompt)
         clean_responses.append(response)
     
+    # 准备评估数据
     query_response_pairs = list(zip(original_prompts, clean_responses))
+    
+    # 获取每个属性的评分
+    print(f"GPU {gpu_id} evaluating responses...")
     rewards_list = reward_model.get_reward_scores(query_response_pairs)
+    
+    # 使用accelerator收集所有进程的结果
     all_rewards = []
     for i in range(reward_model.num_rewards):
         all_rewards.append(accelerator.gather_for_metrics(rewards_list[i]))
     
     all_full_prompts = accelerator.gather_for_metrics(original_prompts)
     all_full_responses = accelerator.gather_for_metrics(clean_responses)
-    all_attributes = accelerator.gather_for_metrics(sample_attributes)
     
+    # 只在主进程保存结果
     if process_id == 0:
         evaluation_result = {
             'prompt': all_full_prompts,
             'response': all_full_responses,
-            'source_attribute': all_attributes
         }
-
+        
+        # 添加每个属性的评分
         for i, attr_name in enumerate(HELPSTEER_ATTRIBUTES):
             evaluation_result[attr_name] = all_rewards[i]
             print(f'Average {attr_name} score: {np.mean(all_rewards[i])}')
         
+        # 计算整体平均分
         all_scores_array = np.array([all_rewards[i] for i in range(len(HELPSTEER_ATTRIBUTES))])
         overall_scores = np.mean(all_scores_array, axis=0)
         evaluation_result['overall_score'] = overall_scores
         print(f'Overall average score: {np.mean(overall_scores)}')
-
-        for attr in ATTRIBUTE_SUBSETS.keys():
-            mask = np.array([a == attr for a in all_attributes])
-            if np.any(mask):
-                for i, attr_name in enumerate(HELPSTEER_ATTRIBUTES):
-                    attr_scores = np.array(all_rewards[i])[mask]
-                    print(f'Average {attr_name} score for {attr} samples: {np.mean(attr_scores)}')
         
         # 保存结果到CSV
         dataframe = pd.DataFrame(evaluation_result)

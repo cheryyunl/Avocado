@@ -76,15 +76,15 @@ if accelerator.is_main_process:
 else:
     wandb.init(mode="disabled")
 
-if script_args.log_with == 'wandb':
-    if wandb.run is not None:
-        for key, value in wandb.config.items():
-            if hasattr(script_args, key):
-                setattr(script_args, key, value)
-        
-        if wandb.run.sweep_id:
-            script_args.wandb_name = f"{script_args.wandb_name}_sweep_{wandb.run.id}"
-            os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
+if accelerator.is_main_process:
+    if script_args.log_with == 'wandb':
+        wandb.init(
+            project="Avocado",
+            name=script_args.wandb_name,
+            config=vars(script_args)
+        )
+else:
+    wandb.init(mode="disabled")
 
 training_args = TrainingArguments(
     max_steps=20000,  

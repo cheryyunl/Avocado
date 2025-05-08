@@ -137,7 +137,7 @@ def reward_guided_generate(
 
                 combined_scores = top_logits[b, :len(candidate_input_ids)] + beta * weighted_rewards
 
-                if generation_kwargs.get("do_sample", False):
+                if generation_kwargs.get("do_sample", True):
                     sampling_probs = F.softmax(combined_scores / generation_kwargs.get("temperature", 1.0), dim=0)
                     next_token_idx = torch.multinomial(sampling_probs, num_samples=1)[0]
                 else:
@@ -145,7 +145,7 @@ def reward_guided_generate(
 
                 if next_token_idx < top_indices.size(1):
                     next_tokens[b] = top_indices[b, next_token_idx]
-                    
+
             next_tokens = next_tokens.unsqueeze(1)
             curr_input_ids = torch.cat([curr_input_ids, next_tokens], dim=1)
             curr_attention_mask = torch.cat([
@@ -232,7 +232,7 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 0.9, 
-    "do_sample": True,
+    "do_sample": False,
 }
 
 

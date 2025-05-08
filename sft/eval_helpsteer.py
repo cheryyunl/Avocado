@@ -15,16 +15,67 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from utils import load_main_tokenizer, check_lora_in_model_path
 
-# 定义HelpSteer的属性名称
+# HelpSteer属性名称
 HELPSTEER_ATTRIBUTES = [
-    'helpsteer-helpfulness', 
-    'helpsteer-correctness', 
+    'helpsteer-helpfulness',
+    'helpsteer-correctness',
     'helpsteer-coherence',
-    'helpsteer-complexity'
+    'helpsteer-honesty',  # 这个模型叫honesty而不是之前叫的complexity
+    'helpsteer-complexity'  # 这个应该对应verbosity
 ]
 
+class HelpSteerRewardModel:
+    def __init__(self, model_path="RLHFlow/RewardModel-Mistral-7B-for-DPA-v1", device="cuda"):
+        self.device = device
+        print(f"Loading HelpSteer reward model from {model_path}...")
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_path, 
+            torch_dtype=torch.bfloat16, 
+            device_map=device,
+            trust_remote_code=True
+        )
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        
+        # 输入模板
+        self.input_template = "[INST] You must read the following conversation carefully and rate the assistant's response from score 0-100 in these aspects: helpfulness, correctness, coherence, honesty, complexity, verbosity\n\nUser: {prompt}\n\nAssistant: {response} [/INST]"
+        
+        self.num_rewards = len(HELPSTEER_ATTRIBUTES)
+        print(f"Loaded HelpSteer model with {self.num_rewards} attributes")
+        
+    def get_reward_scores(self, query_response_pairs):
+        """评估一批query-response对，返回每个属性的评分"""
+        all_scores = [[] for _ in range(self.num_rewards)]
+        
+        for prompt, response in tqdm(query_response_pairs, desc="Evaluating responses"):
+            # 使用模板格式化输入
+            formatted_input = self.input_template.format(prompt=prompt, response=response)
+            
+            # 编码输入
+            model_inputs = self.tokenizer(
+                formatted_input, 
+                return_tensors="pt"
+            ).to(self.device)
+            
+            with torch.no_grad():
+                # 获取评分
+                raw_scores = self.model(**model_inputs).logits.squeeze().cpu().float().numpy()
+                
+                # 转换为HelpSteer的0-4分制 (按示例中的转换公式)
+                helpsteer_scores = (raw_scores[:self.num_rewards] - 10) / 20
+                
+                # 保存各属性的分数
+                for i in range(self.num_rewards):
+                    all_scores[i].append(float(helpsteer_scores[i]))
+                    
+                # 打印调试信息（仅第一个样本）
+                if len(all_scores[0]) == 1:
+                    print(f"Raw scores: {raw_scores[:self.num_rewards]}")
+                    print(f"HelpSteer scores: {helpsteer_scores}")
+        
+        return all_scores
+
 def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', seed=42, size=None):
-    """HelpSteer评估数据集加载函数，与原始eval风格一致"""
+    """HelpSteer评估数据集加载函数"""
     # 加载各子集
     ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
     ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
@@ -39,7 +90,7 @@ def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', 
     if size is not None:
         ds = ds.select(range(size))
     
-    # 样本处理函数 - 直接参考原始build_dataset_eval的风格
+    # 样本处理函数
     def tokenize(sample):
         # 创建prompt格式
         sample['prompt'] = f"Human: {sample['prompt']}\nAssistant: "
@@ -50,7 +101,7 @@ def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', 
         sample["attention_mask"] = [1] * len(sample["input_ids"])
         return sample
     
-    # 应用处理函数 - 与原始代码保持一致的参数
+    # 应用处理函数
     ds_processed = ds.map(tokenize, batched=False, num_proc=20)
     
     # 过滤过长或过短的样本
@@ -62,62 +113,10 @@ def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', 
     if columns_to_remove:
         ds_processed = ds_processed.remove_columns(columns_to_remove)
     
-    # 设置为torch格式 - 关键步骤
+    # 设置为torch格式
     ds_processed.set_format(type="torch")
     
     return ds_processed
-
-class HelpSteerRewardModel:
-    def __init__(self, model_path, device="cuda"):
-        self.device = device
-        print(f"Loading HelpSteer reward model from {model_path}...")
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            model_path, 
-            torch_dtype=torch.bfloat16, 
-            device_map=device,
-            trust_remote_code=True
-        )
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path, 
-            use_fast=True
-        )
-        self.num_rewards = len(HELPSTEER_ATTRIBUTES)
-        print(f"Loaded HelpSteer model with {self.num_rewards} attributes")
-        
-    def get_reward_scores(self, query_response_pairs):
-        """评估一批query-response对，返回每个属性的评分"""
-        all_scores = [[] for _ in range(self.num_rewards)]
-        
-        for prompt, response in tqdm(query_response_pairs, desc="Evaluating responses"):
-            messages = [
-                {"role": "user", "content": prompt},
-                {"role": "assistant", "content": response}
-            ]
-            
-            input_ids = self.tokenizer.apply_chat_template(
-                messages, 
-                return_tensors="pt"
-            ).to(self.device)
-            
-            with torch.no_grad():
-                output = self.model(input_ids)
-                for i in range(self.num_rewards):
-                    print("output score:", output.score)
-                    all_scores[i].append(output.score[i].cpu().float().item())
-        
-        return all_scores
-
-def get_clean_response(full_text, prompt):
-    """从生成的文本中提取助手的回复"""
-    if full_text.startswith(prompt):
-        response = full_text[len(prompt):]
-    else:
-        if "Assistant:" in full_text:
-            response = full_text.split("Assistant:", 1)[1]
-        else:
-            response = full_text
-    
-    return response.strip()
 
 @dataclass
 class ScriptArguments:
@@ -125,7 +124,7 @@ class ScriptArguments:
     base_model_name: Optional[str] = field(default='./huggingface_models/Llama-2-7b-hf')
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='cheryyunl/helpsteer', metadata={"help": "Dataset to evaluate on"})
-    reward_model_path: Optional[str] = field(default='nicolinho/QRM-Llama3.1-8B-v2')
+    reward_model_path: Optional[str] = field(default='RLHFlow/RewardModel-Mistral-7B-for-DPA-v1')
     num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
 
@@ -176,7 +175,7 @@ def main():
         "min_length": -1,
         "top_k": 0.0,
         "top_p": 0.9, 
-        "do_sample": False,
+        "do_sample": True,
     }
     
     # 加载评估数据集
@@ -238,8 +237,15 @@ def main():
     # 提取助手回复部分
     clean_responses = []
     for full_text, prompt in zip(full_responses, input_texts):
-        response = get_clean_response(full_text, prompt)
-        clean_responses.append(response)
+        if full_text.startswith(prompt):
+            response = full_text[len(prompt):]
+        else:
+            if "Assistant:" in full_text:
+                response = full_text.split("Assistant:", 1)[1]
+            else:
+                response = full_text
+        
+        clean_responses.append(response.strip())
     
     # 准备评估数据
     query_response_pairs = list(zip(original_prompts, clean_responses))

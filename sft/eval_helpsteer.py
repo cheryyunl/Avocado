@@ -15,9 +15,6 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from utils import load_main_tokenizer, check_lora_in_model_path
 
-# 导入你的build_helpsteer_eval_dataset函数
-from helpsteer_utils import build_helpsteer_eval_dataset
-
 # 定义HelpSteer的属性名称
 HELPSTEER_ATTRIBUTES = [
     'helpsteer-helpfulness', 
@@ -25,6 +22,50 @@ HELPSTEER_ATTRIBUTES = [
     'helpsteer-coherence',
     'helpsteer-complexity'
 ]
+
+def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', seed=42, size=None):
+    """HelpSteer评估数据集加载函数，与原始eval风格一致"""
+    # 加载各子集
+    ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
+    ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
+    ds_coherence = load_dataset(helpsteer_path, data_dir="coherence-positive", split=split)
+    ds_complexity = load_dataset(helpsteer_path, data_dir="complexity-negative", split=split)
+    
+    # 合并所有子集
+    ds = concatenate_datasets([ds_helpfulness, ds_correctness, ds_coherence, ds_complexity])
+    ds = ds.shuffle(seed=seed)
+    
+    # 限制数据集大小（如果指定）
+    if size is not None:
+        ds = ds.select(range(size))
+    
+    # 样本处理函数 - 直接参考原始build_dataset_eval的风格
+    def tokenize(sample):
+        # 创建prompt格式
+        sample['prompt'] = f"Human: {sample['prompt']}\nAssistant: "
+        # 保存原始prompt用于后续评估
+        sample['original_prompt'] = sample['prompt'].replace("Human: ", "").replace("\nAssistant: ", "")
+        # 编码为input_ids
+        sample["input_ids"] = tokenizer.encode(sample["prompt"])
+        sample["attention_mask"] = [1] * len(sample["input_ids"])
+        return sample
+    
+    # 应用处理函数 - 与原始代码保持一致的参数
+    ds_processed = ds.map(tokenize, batched=False, num_proc=20)
+    
+    # 过滤过长或过短的样本
+    ds_processed = ds_processed.filter(lambda x: len(x["input_ids"]) <= 1024 and len(x["input_ids"]) >= 8)
+    
+    # 移除不需要的列
+    columns_to_remove = ['helpfulness', 'correctness', 'coherence', 'complexity', 'verbosity', 'response']
+    columns_to_remove = [col for col in columns_to_remove if col in ds_processed.column_names]
+    if columns_to_remove:
+        ds_processed = ds_processed.remove_columns(columns_to_remove)
+    
+    # 设置为torch格式 - 关键步骤
+    ds_processed.set_format(type="torch")
+    
+    return ds_processed
 
 class HelpSteerRewardModel:
     def __init__(self, model_path, device="cuda"):
@@ -140,38 +181,25 @@ def main():
     
     # 加载评估数据集
     print('Loading evaluation dataset...')
+    # 如果设置了num_samples，直接在加载时限制大小
+    size = script_args.num_samples if script_args.num_samples > 0 else None
     valid_dataset = build_helpsteer_eval_dataset(
         script_args.dataset_path, 
         tokenizer, 
-        split=script_args.split
+        split=script_args.split,
+        size=size
     )
     
-    # 如果指定了样本数量，随机选择指定数量的样本
-    if script_args.num_samples > 0 and len(valid_dataset) > script_args.num_samples:
-        valid_dataset = valid_dataset.shuffle(seed=8888)
-        valid_dataset = valid_dataset.select(range(script_args.num_samples))
-    
     print(f"Size of the validation set: {len(valid_dataset)}")
-    
-    # 将数据集格式设置为PyTorch格式，但不在此转换为tensor
-    valid_dataset.set_format(type=None)
     
     # 批处理大小设为1以避免问题
     valid_batch_size = 1
     
-    # 正确配置DataCollator
-    data_collator = DataCollatorWithPadding(
-        tokenizer=tokenizer,
-        padding=True,
-        return_tensors="pt"  # 明确指定返回PyTorch tensor
-    )
-    
-    # 准备DataLoader
+    # 使用与原始评估相同的数据加载方式
     valid_data_loader = DataLoader(
         valid_dataset, 
         batch_size=valid_batch_size, 
-        drop_last=False, 
-        collate_fn=data_collator
+        drop_last=False
     )
     
     # 使用accelerator准备模型和数据加载器

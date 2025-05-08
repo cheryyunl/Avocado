@@ -63,7 +63,7 @@ def auto_size(seq_len, topk):
         return 1
     return possible_facs[::-1][np.argmax(np.array(possible_facs[::-1]) < estimated)]
 
-class OptimizedARGSAdapter:
+class ARGSAdapter:
     def __init__(
         self, 
         model,
@@ -214,36 +214,20 @@ class OptimizedARGSAdapter:
                             use_cache=True
                         )
                         rm_cached[i] = rm_out.past_key_values
-                    
-                    # 获取reward分数
                     rewards = rm_out.logits.flatten()[:actual_size].to(self.device)
-                    
-                    # 更新总reward
                     all_rewards[start_idx:end_idx] += weight * rewards
-                    
-                    # 显式释放内存
                     del rm_out, rewards
-            
-            # 定期清理缓存
-            if chunk_idx % 3 == 0:
-                torch.cuda.empty_cache()
         
-        # 合并语言模型logits和reward
         new_scores = all_rewards + prescreen_logits.flatten()
         
         if temperature > 0:
-            # 使用temperature sampling
             new_scores = new_scores / temperature
             scores = F.softmax(new_scores, dim=-1)
             top_k_ids = torch.multinomial(scores, num_samples=1)
         else:
-            # 使用greedy选择
             _, top_k_ids = torch.topk(new_scores, dim=-1, k=1)
         
-        # 重排reward model缓存
         rm_cached = [rcache(cached, top_k_ids.repeat(pre_screen_beam_width)) for cached in rm_cached]
-        
-        # 返回选定的序列和更新的缓存
         return flat_trme[top_k_ids], rm_cached
     
     def args_generate(
@@ -252,35 +236,28 @@ class OptimizedARGSAdapter:
         attention_mask, 
         instructions,
         preference_weights=None,
-        beta=1.5,   # 使用论文推荐的值
-        topk=10,    # 减少候选数量以提高速度
+        beta=1.5,   
+        topk=10,    
         max_new_tokens=128,
-        temperature=0.7,
-        use_large_step=False,  # 是否使用large_step变体
+        temperature=0,
+        use_large_step=False,  
         **generation_kwargs
     ):
-        """使用优化的ARGS进行生成"""
         batch_size = input_ids.size(0)
         device = input_ids.device
-        
-        # 初始化生成序列
+
         curr_input_ids = input_ids.clone()
         curr_attention_mask = attention_mask.clone()
-        
-        # 跟踪未完成的序列
+
         unfinished = torch.ones(batch_size, dtype=torch.bool, device=device)
         
-        # 初始化缓存
         cached = None
         rm_cached = None
-        
-        # 生成tokens
+
         for _ in range(max_new_tokens):
-            # 如果所有序列都已完成，则停止
             if not unfinished.any():
                 break
                 
-            # 获取模型输出
             with torch.no_grad():
                 if cached is None:
                     mout = self.model(
@@ -297,8 +274,7 @@ class OptimizedARGSAdapter:
                         use_cache=True
                     )
                     cached = mout.past_key_values
-                
-                # 使用适当的生成步骤
+
                 if use_large_step:
                     next_tokens, rm_cached = self.generate_greedy_step_large(
                         mout, 

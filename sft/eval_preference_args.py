@@ -19,7 +19,17 @@ from multi_reward_models import RewardModels
 from utils import load_main_tokenizer, check_lora_in_model_path, Instructions, Instructions_summary, \
                     build_dataset_eval, build_dataset_summary_eval, get_clean_data
 
-# ARGS实现 - 从您提供的代码中提取
+import os
+import copy
+import torch
+import torch.cuda
+from torch.nn import functional as F
+import numpy as np
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, HfArgumentParser, DataCollatorWithPadding
+import gc
+
+# 保留工具函数
 def create_attention_mask(seq_len, bsz=1):
     return torch.ones((bsz, seq_len))
 
@@ -32,41 +42,141 @@ def rcache(past_key_values, beam_idx):
     return reordered_past
 
 def even_chunk(data, chunk_size=10):
-    assert data.shape[0] % chunk_size == 0, "chunk_size must evenly divide the topk"
-    for i in range(0, data.shape[0], chunk_size):
-        yield data[i:(i+chunk_size)]
+    # 处理非整除情况
+    if data.shape[0] % chunk_size != 0:
+        pad_size = chunk_size - (data.shape[0] % chunk_size)
+        padding = torch.zeros((pad_size,) + data.shape[1:], dtype=data.dtype, device=data.device)
+        padded_data = torch.cat([data, padding], dim=0)
+        chunks = [padded_data[i:i+chunk_size] for i in range(0, padded_data.shape[0], chunk_size)]
+        # 返回实际大小
+        return [(chunk, min(chunk_size, data.shape[0] - i)) for i, chunk in enumerate(chunks)]
+    else:
+        return [(data[i:i+chunk_size], chunk_size) for i in range(0, data.shape[0], chunk_size)]
 
 def factors(x):
-    return [i for i in range(1,x+1) if x%i==0]
+    return [i for i in range(1, x+1) if x % i == 0]
 
 def auto_size(seq_len, topk):
-    estimated = (28672/(seq_len*1.5)) -11.52605
-    # hack
+    estimated = (28672/(seq_len*1.5)) - 11.52605
     possible_facs = factors(topk)
-    if np.all(~(np.array(possible_facs[::-1]) < estimated)): return 1
+    if np.all(~(np.array(possible_facs[::-1]) < estimated)): 
+        return 1
     return possible_facs[::-1][np.argmax(np.array(possible_facs[::-1]) < estimated)]
 
-# 适配器类，连接ARGS和您的评估代码
-class ARGSAdapter:
+class OptimizedARGSAdapter:
     def __init__(
         self, 
         model,
         tokenizer,
         reward_models,
-        device="cuda",
-        rm_device="cuda",
+        device="cuda:0",
+        rm_device="cuda:1",  
         debug=False
     ):
         self.model = model
         self.tokenizer = tokenizer
-        self.rm_models = reward_models.reward_models  # 获取原始reward models列表
+        self.rm_models = reward_models.reward_models
         self.rm_tokenizers = reward_models.rm_tokenizers
         self.num_rewards = reward_models.num_rewards
         self.device = device
         self.rm_device = rm_device
         self.debug = debug
         
-    def generate_step(self, mout, input_ids, pre_screen_beam_width=20, weights=None, temperature=0.7, rm_cached=None):
+        # 尝试将reward模型移动到单独的设备
+        if torch.cuda.device_count() > 1:
+            print(f"Using multi-GPU: LLM on {device}, RM on {rm_device}")
+            for i, rm in enumerate(self.rm_models):
+                self.rm_models[i] = rm.to(self.rm_device)
+                # 确保每个RM的配置有pad_token_id
+                if hasattr(rm, 'config') and rm.config.pad_token_id is None:
+                    rm.config.pad_token_id = self.rm_tokenizers[i].eos_token_id
+        else:
+            print(f"Single GPU setup: All models shared on {device}")
+            self.rm_device = device
+        
+        # 确保所有tokenizer都有padding token
+        for i, tokenizer in enumerate(self.rm_tokenizers):
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.padding_side = 'right'
+    
+    def generate_greedy_step_large(self, mout, input_ids, pre_screen_beam_width=10, weights=None, rm_cached=None, chunk_size=5):
+        if weights is None:
+            weights = [1.0/self.num_rewards] * self.num_rewards
+        
+        out_logits = mout.logits[:, -1]
+        prescreen_logits, prescreen_tokens = torch.topk(out_logits, dim=-1, k=pre_screen_beam_width)
+
+        expanded_tis = torch.unsqueeze(input_ids, 1).repeat(1, pre_screen_beam_width, 1)
+        to_rm_eval = torch.dstack((expanded_tis, prescreen_tokens))
+        flat_trme = to_rm_eval.view(out_logits.shape[0] * pre_screen_beam_width, -1)
+        
+        if chunk_size == "auto":
+            chunk_size = auto_size(flat_trme.shape[1], pre_screen_beam_width)
+            print(f"auto chunk size: {chunk_size}")
+        
+        new_rm_cached = None
+        current_best_score = None
+        current_best_tokens = None
+        
+        for (chunk, actual_size), chunk_logits in zip(
+            even_chunk(flat_trme.to(self.rm_device), chunk_size), 
+            even_chunk(prescreen_logits.flatten(), chunk_size)[0]
+        ):
+            all_chunk_rewards = torch.zeros(actual_size, device=self.device)
+
+            for i, (rm, rm_tokenizer, weight) in enumerate(zip(self.rm_models, self.rm_tokenizers, weights)):
+                if rm_cached is None:
+                    rm_out = rm(
+                        input_ids=chunk[:actual_size], 
+                        attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                        use_cache=True
+                    )
+                    current_rm_cached = rm_out.past_key_values
+                else:
+                    rm_out = rm(
+                        input_ids=chunk[:actual_size], 
+                        attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                        past_key_values=rm_cached[i] if isinstance(rm_cached, list) else rm_cached,
+                        use_cache=True
+                    )
+                    current_rm_cached = rm_out.past_key_values
+                
+                rewards = rm_out.logits.flatten()[:actual_size].to(self.device)
+                all_chunk_rewards += weight * rewards
+                
+                del rm_out, rewards
+                torch.cuda.empty_cache()
+            
+            new_scores = all_chunk_rewards + chunk_logits[:actual_size]
+            
+            # 找到最佳分数和对应token
+            max_idx = torch.argmax(new_scores)
+            current_score = new_scores[max_idx].item()
+            
+            if (current_best_score is None) or (current_score > current_best_score):
+                current_best_score = current_score
+                current_best_tokens = chunk[max_idx:max_idx+1].to(self.device)
+                
+                if rm_cached is not None:
+                    select_idx = torch.zeros(actual_size, dtype=torch.long, device=self.rm_device)
+                    select_idx[0] = max_idx
+                    
+                    # 重排缓存
+                    if isinstance(rm_cached, list):
+                        new_rm_cached = [
+                            rcache(cached, select_idx) for cached in rm_cached
+                        ]
+                    else:
+                        new_rm_cached = rcache(current_rm_cached, select_idx)
+        
+        # 清理缓存
+        torch.cuda.empty_cache()
+        gc.collect()
+        
+        return current_best_tokens, new_rm_cached
+        
+    def generate_step(self, mout, input_ids, pre_screen_beam_width=10, weights=None, temperature=0.7, rm_cached=None):
         if weights is None:
             weights = [1.0/self.num_rewards] * self.num_rewards
             
@@ -77,22 +187,49 @@ class ARGSAdapter:
         to_rm_eval = torch.dstack((expanded_tis, prescreen_tokens))
         flat_trme = to_rm_eval.view(out_logits.shape[0] * pre_screen_beam_width, -1)
         
-        # 文本解码用于reward评估
-        candidate_texts = self.tokenizer.batch_decode(flat_trme, skip_special_tokens=True)
-        
-        # 使用多个reward models评估
+        chunk_size = min(5, pre_screen_beam_width)  
         all_rewards = torch.zeros(flat_trme.shape[0], device=self.device)
-        for i, (rm, rm_tokenizer, weight) in enumerate(zip(self.rm_models, self.rm_tokenizers, weights)):
-            # 为reward model准备输入
-            rm_inputs = rm_tokenizer(candidate_texts, return_tensors="pt", padding=True, truncation=True).to(self.rm_device)
-            with torch.no_grad():
-                rewards = rm(**rm_inputs).logits.flatten().to(self.device)
+
+        if rm_cached is None:
+            rm_cached = [None] * self.num_rewards
+
+        for chunk_idx, (chunk, actual_size) in enumerate(even_chunk(flat_trme.to(self.rm_device), chunk_size)):
+            start_idx = chunk_idx * chunk_size
+            end_idx = start_idx + actual_size
             
-            # 加权合并reward
-            all_rewards += weight * rewards
+            for i, (rm, rm_tokenizer, weight) in enumerate(zip(self.rm_models, self.rm_tokenizers, weights)):
+                with torch.no_grad():
+                    if rm_cached[i] is None:
+                        rm_out = rm(
+                            input_ids=chunk[:actual_size], 
+                            attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                            use_cache=True
+                        )
+                        rm_cached[i] = rm_out.past_key_values
+                    else:
+                        rm_out = rm(
+                            input_ids=chunk[:actual_size], 
+                            attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                            past_key_values=rm_cached[i],
+                            use_cache=True
+                        )
+                        rm_cached[i] = rm_out.past_key_values
+                    
+                    # 获取reward分数
+                    rewards = rm_out.logits.flatten()[:actual_size].to(self.device)
+                    
+                    # 更新总reward
+                    all_rewards[start_idx:end_idx] += weight * rewards
+                    
+                    # 显式释放内存
+                    del rm_out, rewards
             
-        # 合并语言模型logits和reward分数
-        new_scores = all_rewards * sum(weights) + prescreen_logits.flatten()
+            # 定期清理缓存
+            if chunk_idx % 3 == 0:
+                torch.cuda.empty_cache()
+        
+        # 合并语言模型logits和reward
+        new_scores = all_rewards + prescreen_logits.flatten()
         
         if temperature > 0:
             # 使用temperature sampling
@@ -102,22 +239,27 @@ class ARGSAdapter:
         else:
             # 使用greedy选择
             _, top_k_ids = torch.topk(new_scores, dim=-1, k=1)
-            
-        return flat_trme[top_k_ids], None  # 不传递rm_cached因为我们使用解码+评分
         
+        # 重排reward model缓存
+        rm_cached = [rcache(cached, top_k_ids.repeat(pre_screen_beam_width)) for cached in rm_cached]
+        
+        # 返回选定的序列和更新的缓存
+        return flat_trme[top_k_ids], rm_cached
+    
     def args_generate(
         self, 
         input_ids, 
         attention_mask, 
         instructions,
         preference_weights=None,
-        beta=0.5,   # reward影响系数
-        topk=20,    # 考虑的候选token数量
+        beta=1.5,   # 使用论文推荐的值
+        topk=10,    # 减少候选数量以提高速度
         max_new_tokens=128,
         temperature=0.7,
+        use_large_step=False,  # 是否使用large_step变体
         **generation_kwargs
     ):
-        """使用ARGS进行生成"""
+        """使用优化的ARGS进行生成"""
         batch_size = input_ids.size(0)
         device = input_ids.device
         
@@ -128,8 +270,9 @@ class ARGSAdapter:
         # 跟踪未完成的序列
         unfinished = torch.ones(batch_size, dtype=torch.bool, device=device)
         
-        # 使用模型缓存提高效率
+        # 初始化缓存
         cached = None
+        rm_cached = None
         
         # 生成tokens
         for _ in range(max_new_tokens):
@@ -155,14 +298,28 @@ class ARGSAdapter:
                     )
                     cached = mout.past_key_values
                 
-                # 使用ARGS步骤生成
-                next_tokens, _ = self.generate_step(
-                    mout, 
-                    curr_input_ids, 
-                    pre_screen_beam_width=topk,
-                    weights=preference_weights,
-                    temperature=temperature
-                )
+                # 使用适当的生成步骤
+                if use_large_step:
+                    next_tokens, rm_cached = self.generate_greedy_step_large(
+                        mout, 
+                        curr_input_ids, 
+                        pre_screen_beam_width=topk,
+                        weights=preference_weights,
+                        rm_cached=rm_cached,
+                        chunk_size=5
+                    )
+                else:
+                    next_tokens, rm_cached = self.generate_step(
+                        mout, 
+                        curr_input_ids, 
+                        pre_screen_beam_width=topk,
+                        weights=preference_weights,
+                        temperature=temperature,
+                        rm_cached=rm_cached
+                    )
+                
+                # 释放mout内存
+                del mout
                 
                 # 更新input_ids
                 curr_input_ids = next_tokens
@@ -176,6 +333,10 @@ class ARGSAdapter:
                 # 检查EOS是否生成
                 eos_mask = (curr_input_ids[:, -1] == self.tokenizer.eos_token_id)
                 unfinished = unfinished & ~eos_mask
+            
+            # 定期清理缓存
+            if _ % 10 == 0:
+                torch.cuda.empty_cache()
         
         return curr_input_ids
 

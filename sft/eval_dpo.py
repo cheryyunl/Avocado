@@ -100,7 +100,7 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 0.9, 
-    "do_sample": True,
+    "do_sample": False,
 }
 
 print('Evaluating DPO model...')

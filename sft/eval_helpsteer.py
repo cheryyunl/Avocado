@@ -101,8 +101,8 @@ class HelpSteerRewardModel:
             
             with torch.no_grad():
                 output = self.model(input_ids)
-                # 获取四个属性评分
                 for i in range(self.num_rewards):
+                    print("output score:", output.score)
                     all_scores[i].append(output.score[i].cpu().float().item())
         
         return all_scores
@@ -176,7 +176,7 @@ def main():
         "min_length": -1,
         "top_k": 0.0,
         "top_p": 0.9, 
-        "do_sample": True,
+        "do_sample": False,
     }
     
     # 加载评估数据集

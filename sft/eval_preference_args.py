@@ -82,7 +82,6 @@ class ARGSAdapter:
         self.rm_device = rm_device
         self.debug = debug
         
-        # 尝试将reward模型移动到单独的设备
         if torch.cuda.device_count() > 1:
             print(f"Using multi-GPU: LLM on {device}, RM on {rm_device}")
             for i, rm in enumerate(self.rm_models):
@@ -93,8 +92,7 @@ class ARGSAdapter:
         else:
             print(f"Single GPU setup: All models shared on {device}")
             self.rm_device = device
-        
-        # 确保所有tokenizer都有padding token
+
         for i, tokenizer in enumerate(self.rm_tokenizers):
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
@@ -127,16 +125,18 @@ class ARGSAdapter:
 
             for i, (rm, rm_tokenizer, weight) in enumerate(zip(self.rm_models, self.rm_tokenizers, weights)):
                 if rm_cached is None:
+                    attention_mask = create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device)
                     rm_out = rm(
                         input_ids=chunk[:actual_size], 
-                        attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                        attention_mask=attention_mask,
                         use_cache=True
                     )
-                    current_rm_cached = rm_out.past_key_values
                 else:
+                    seq_length = rm_cached[i][0][0].shape[2] + 1 if isinstance(rm_cached, list) else rm_cached[0][0].shape[2] + 1
+                    attention_mask = torch.ones((actual_size, seq_length), device=self.rm_device)
                     rm_out = rm(
-                        input_ids=chunk[:actual_size], 
-                        attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                        input_ids=chunk[:actual_size, -1:],  
+                        attention_mask=attention_mask,
                         past_key_values=rm_cached[i] if isinstance(rm_cached, list) else rm_cached,
                         use_cache=True
                     )
@@ -150,7 +150,6 @@ class ARGSAdapter:
             
             new_scores = all_chunk_rewards + chunk_logits[:actual_size]
             
-            # 找到最佳分数和对应token
             max_idx = torch.argmax(new_scores)
             current_score = new_scores[max_idx].item()
             
@@ -161,16 +160,14 @@ class ARGSAdapter:
                 if rm_cached is not None:
                     select_idx = torch.zeros(actual_size, dtype=torch.long, device=self.rm_device)
                     select_idx[0] = max_idx
-                    
-                    # 重排缓存
+
                     if isinstance(rm_cached, list):
                         new_rm_cached = [
                             rcache(cached, select_idx) for cached in rm_cached
                         ]
                     else:
                         new_rm_cached = rcache(current_rm_cached, select_idx)
-        
-        # 清理缓存
+
         torch.cuda.empty_cache()
         gc.collect()
         
@@ -187,12 +184,12 @@ class ARGSAdapter:
         to_rm_eval = torch.dstack((expanded_tis, prescreen_tokens))
         flat_trme = to_rm_eval.view(out_logits.shape[0] * pre_screen_beam_width, -1)
         
-        chunk_size = min(5, pre_screen_beam_width)  
+        chunk_size = min(5, pre_screen_beam_width)
         all_rewards = torch.zeros(flat_trme.shape[0], device=self.device)
-
+        
         if rm_cached is None:
             rm_cached = [None] * self.num_rewards
-
+        
         for chunk_idx, (chunk, actual_size) in enumerate(even_chunk(flat_trme.to(self.rm_device), chunk_size)):
             start_idx = chunk_idx * chunk_size
             end_idx = start_idx + actual_size
@@ -200,24 +197,28 @@ class ARGSAdapter:
             for i, (rm, rm_tokenizer, weight) in enumerate(zip(self.rm_models, self.rm_tokenizers, weights)):
                 with torch.no_grad():
                     if rm_cached[i] is None:
+                        attention_mask = create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device)
                         rm_out = rm(
-                            input_ids=chunk[:actual_size], 
-                            attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                            input_ids=chunk[:actual_size],
+                            attention_mask=attention_mask,
                             use_cache=True
                         )
                         rm_cached[i] = rm_out.past_key_values
                     else:
+                        seq_length = rm_cached[i][0][0].shape[2] + 1  
+                        attention_mask = torch.ones((actual_size, seq_length), device=self.rm_device)
                         rm_out = rm(
-                            input_ids=chunk[:actual_size], 
-                            attention_mask=create_attention_mask(chunk.shape[1], actual_size).to(self.rm_device),
+                            input_ids=chunk[:actual_size, -1:], 
+                            attention_mask=attention_mask,
                             past_key_values=rm_cached[i],
                             use_cache=True
                         )
                         rm_cached[i] = rm_out.past_key_values
+                    
                     rewards = rm_out.logits.flatten()[:actual_size].to(self.device)
                     all_rewards[start_idx:end_idx] += weight * rewards
                     del rm_out, rewards
-        
+    
         new_scores = all_rewards + prescreen_logits.flatten()
         
         if temperature > 0:

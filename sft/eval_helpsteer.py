@@ -83,7 +83,7 @@ class ScriptArguments:
     save_directory: Optional[str] = field(default='./logs_trl')
     base_model_name: Optional[str] = field(default='./huggingface_models/Llama-2-7b-hf')
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
-    dataset_path: Optional[str] = field(default='HelpSteer/help-steer', metadata={"help": "Dataset to evaluate on"})
+    dataset_path: Optional[str] = field(default='cheryyunl/helpsteer', metadata={"help": "Dataset to evaluate on"})
     reward_model_path: Optional[str] = field(default='nicolinho/QRM-Llama3.1-8B-v2')
     num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})

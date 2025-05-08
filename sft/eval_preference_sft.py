@@ -13,6 +13,7 @@ from trl import set_seed
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from multi_reward_models import RewardModels
 from utils import load_main_tokenizer, check_lora_in_model_path, Instructions, Instructions_summary, \
                     build_dataset_eval, build_dataset_summary_eval, get_clean_data
@@ -134,18 +135,17 @@ def reward_guided_generate(
                         reward_tensor = reward_tensor.squeeze()
                     weighted_rewards += preference_weights[i] * reward_tensor
 
-                adjusted_probs = top_probs[b, :len(candidate_input_ids)] * torch.exp(beta * weighted_rewards)
-                adjusted_probs = adjusted_probs / adjusted_probs.sum()
-                
+                combined_scores = top_logits[b, :len(candidate_input_ids)] + beta * weighted_rewards
+
                 if generation_kwargs.get("do_sample", False):
-                    next_token_idx = torch.multinomial(adjusted_probs, num_samples=1)[0]
+                    sampling_probs = F.softmax(combined_scores / generation_kwargs.get("temperature", 1.0), dim=0)
+                    next_token_idx = torch.multinomial(sampling_probs, num_samples=1)[0]
                 else:
-                    next_token_idx = torch.argmax(adjusted_probs)
-                
+                    next_token_idx = torch.argmax(combined_scores)
+
                 if next_token_idx < top_indices.size(1):
                     next_tokens[b] = top_indices[b, next_token_idx]
-            
-            # 添加新token到序列中
+                    
             next_tokens = next_tokens.unsqueeze(1)
             curr_input_ids = torch.cat([curr_input_ids, next_tokens], dim=1)
             curr_attention_mask = torch.cat([
@@ -159,8 +159,6 @@ def reward_guided_generate(
     
     return curr_input_ids
 
-# 原有代码继续...
-# define paths for two datasets
 hhrlhf_dataset_path = 'Anthropic/hh-rlhf'
 summary_dataset_path = 'openai/summarize_from_feedback'
 

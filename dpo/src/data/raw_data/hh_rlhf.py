@@ -104,6 +104,7 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
             else:
                 ds = load_dataset(self.path, data_dir=data_dir, split=split)
             helpful_datasets.append(ds)
+            print(f"Successfully loaded {data_dir}, split: {split}, size: {len(ds)}")
         
         if not harmless_datasets or not helpful_datasets:
             raise ValueError(f"No datasets were successfully loaded for split: {split}")
@@ -115,8 +116,28 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
         helpful_combined = concatenate_datasets(helpful_datasets)
         helpful_combined = helpful_combined.map(lambda x: {"task_id": 1})
         helpful_combined = helpful_combined.shuffle(seed=42)
+        
+        harmless_size = len(harmless_combined)
+        helpful_size = len(helpful_combined)
+        print(f"Original harmless data size: {harmless_size}")
+        print(f"Original helpful data size: {helpful_size}")
+
+        target_size = max(harmless_size, helpful_size)
+        
+        if harmless_size < helpful_size:
+            repeat_times = helpful_size // harmless_size
+            remainder = helpful_size % harmless_size
+            repeated_datasets = [harmless_combined] * repeat_times
+            if remainder > 0:
+                remainder_dataset = harmless_combined.select(range(remainder))
+                repeated_datasets.append(remainder_dataset)
+                
+            harmless_combined = concatenate_datasets(repeated_datasets)
+            harmless_combined = harmless_combined.shuffle(seed=42)
+            print(f"Resampled harmless data size: {len(harmless_combined)}")
 
         combined_dataset = concatenate_datasets([harmless_combined, helpful_combined])
+        print(f"Final combined data size: {len(combined_dataset)}")
         
         if split == "train":
             return combined_dataset.train_test_split(test_size=0.1, seed=0)["train"]

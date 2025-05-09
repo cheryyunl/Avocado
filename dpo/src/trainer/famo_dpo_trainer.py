@@ -15,8 +15,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 import wandb
 
-
-
 class TaskSpecificSampler(DistributedSampler):
     def __init__(self, dataset, n_tasks, **kwargs):
         from accelerate import Accelerator
@@ -208,10 +206,10 @@ class FAMODPOTrainer(DPOTrainer):
         model,
         args: TrainingArguments,
         train_dataset,
-        peft_config,
-        packing,
-        dataset_text_field,
-        data_collator,
+        peft_config=None,
+        packing=False,
+        dataset_text_field="text",
+        data_collator=None,
         n_tasks: int=2,
         gamma: float = 0.01,
         w_lr: float = 0.01,

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import datasets
 from datasets import Dataset, load_dataset, concatenate_datasets
 from transformers import TrainingArguments, PreTrainedTokenizerBase, is_datasets_available
-from transformers.utils import is_sagemaker_mp_enabled
+from transformers.utils import is_sagemaker_mp_enabled, seed_worker
 from torch.utils.data import DataLoader, DistributedSampler
 from src.utils import split_dataset, common_prefix_length, pad_labels
 from dataclasses import dataclass

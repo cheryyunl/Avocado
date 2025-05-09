@@ -5,7 +5,7 @@ from transformers import DataCollatorForLanguageModeling
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 
-def build_helpsteer_dataset(helpsteer_path, tokenizer, split='train', seed=42):
+def build_helpsteer_mixed_dataset(helpsteer_path, tokenizer, split='train', seed=42):
     ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
     ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
     ds_coherence = load_dataset(helpsteer_path, data_dir="coherence-positive", split=split)
@@ -121,6 +121,29 @@ def build_helpsteer_negative_dataset(helpsteer_path, tokenizer, split='train', s
     
     return ds_processed
 
+def build_helpsteer_dataset(helpsteer_path, tokenizer, split='train', seed=42):
+    ds = load_dataset(helpsteer_path, split=split)
+    
+    def tokenize(sample):
+        prompt_ids = tokenizer.encode(sample['prompt'])
+        response_ids = tokenizer.encode(sample['response']) + [tokenizer.eos_token_id]
+        sample["input_ids"] = prompt_ids + response_ids
+        sample["labels"] = [-100] * len(prompt_ids) + response_ids  
+        sample["query"] = tokenizer.decode(sample["input_ids"])
+        return sample
+    
+    ds_processed = ds.map(tokenize, batched=False, num_proc=30)
+
+    ds_processed = ds_processed.filter(lambda x: len(x["input_ids"]) <= 1024 and len(x["input_ids"]) >= 8)
+    ds_processed = ds_processed.remove_columns([
+    'helpfulness', 'correctness', 'coherence', 'complexity', 'verbosity',  
+    'prompt', 'response'  
+    ])
+
+    ds_processed.set_format(type="torch")
+    
+    return ds_processed
+
 def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', seed=42):
     ds_helpfulness = load_dataset(helpsteer_path, data_dir="helpfulness-positive", split=split)
     ds_correctness = load_dataset(helpsteer_path, data_dir="correctness-positive", split=split)
@@ -177,5 +200,3 @@ class HSDataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
         if task_ids is not None:
             batch['task_id'] = torch.tensor(task_ids, dtype=torch.long)
         return batch
-
-

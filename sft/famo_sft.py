@@ -14,7 +14,7 @@ import pandas as pd
 import wandb
 from accelerate import Accelerator
 from multi_task_utils import build_mt_dataset, build_mt_reject_dataset, build_mt_all_dataset, build_harmless_dataset, build_helpful_dataset, MTDataCollatorForCompletionOnlyLM
-from helpsteer_utils import build_helpsteer_dataset, build_helpsteer_positive_dataset, build_helpsteer_negative_dataset, HSDataCollatorForCompletionOnlyLM
+from helpsteer_utils import build_helpsteer_mixed_dataset, build_helpsteer_positive_dataset, build_helpsteer_negative_dataset, HSDataCollatorForCompletionOnlyLM
 from famo_trainer import FAMOSFTTrainer
 from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions
 from transformers import TrainerCallback
@@ -182,7 +182,7 @@ elif exp_type == 'helpsteer_positive':
     rejected_ids = None
     n_tasks = 4
 elif exp_type == 'helpsteer_mixed':
-    train_dataset = build_helpsteer_dataset(helpsteer_dataset_path, tokenizer, split='train') 
+    train_dataset = build_helpsteer_mixed_dataset(helpsteer_dataset_path, tokenizer, split='train') 
     collator = HSDataCollatorForCompletionOnlyLM(tokenizer=tokenizer, mlm=False)
     rejected_ids = [3]
     n_tasks = 4

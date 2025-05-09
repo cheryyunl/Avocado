@@ -5,7 +5,8 @@ from accelerate import Accelerator
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, HfArgumentParser, TrainingArguments
+from transformers import AutoModelForCausalLM, HfArgumentParser, TrainingArguments, DataCollatorForLanguageModeling
+
 from trl import SFTTrainer, set_seed, DataCollatorForCompletionOnlyLM
 from peft import LoraConfig
 import numpy as np
@@ -13,7 +14,7 @@ import pandas as pd
 import wandb
 from accelerate import Accelerator
 from multi_task_utils import build_mt_dataset
-from helpsteer_utils import build_helpsteer_dataset, Instructions_helpsteer
+from helpsteer_utils import build_helpsteer_dataset
 from utils import load_main_tokenizer, Instructions_summary, build_dataset_summary, Instructions, build_dataset, build_base_dataset
 tqdm.pandas()
 
@@ -22,6 +23,7 @@ tqdm.pandas()
 hhrlhf_dataset_path = 'Anthropic/hh-rlhf'
 summary_dataset_path = 'openai/summarize_from_feedback'
 model_path = '/cmlscratch/cheryll/Llama-2-7b-hf'
+helpsteer_dataset_path = 'cheryyunl/helpsteer'
 
 
 @dataclass
@@ -126,8 +128,7 @@ elif exp_type == 'summary':
     collator = DataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
 elif exp_type == 'helpsteer':
     dataset = build_helpsteer_dataset(helpsteer_dataset_path, tokenizer, split='train')
-    response_template_ids = tokenizer.encode(Instructions_helpsteer.response_split, add_special_tokens=False)[1:]  
-    collator = DataCollatorForCompletionOnlyLM(response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
 train_dataset = dataset.shuffle()
 print(f"Size of the train set: {len(train_dataset)}")

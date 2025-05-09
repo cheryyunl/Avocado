@@ -21,7 +21,7 @@ HELPSTEER_ATTRIBUTES = [
     'helpsteer-correctness',
     'helpsteer-coherence',
     'helpsteer-honesty',  # 这个模型叫honesty而不是之前叫的complexity
-    'helpsteer-complexity'  # 这个应该对应verbosity
+    'helpsteer-complexity'  
 ]
 
 class HelpSteerRewardModel:

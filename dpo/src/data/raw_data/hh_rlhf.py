@@ -122,19 +122,34 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
         print(f"Original harmless data size: {harmless_size}")
         print(f"Original helpful data size: {helpful_size}")
 
-        target_size = max(harmless_size, helpful_size)
+        if harmless_size <= helpful_size:
+            target_size = min(harmless_size * 2, helpful_size)
+        else:
+            target_size = min(helpful_size * 2, harmless_size)
         
-        if harmless_size < helpful_size:
-            repeat_times = helpful_size // harmless_size
-            remainder = helpful_size % harmless_size
-            repeated_datasets = [harmless_combined] * repeat_times
-            if remainder > 0:
-                remainder_dataset = harmless_combined.select(range(remainder))
-                repeated_datasets.append(remainder_dataset)
-                
-            harmless_combined = concatenate_datasets(repeated_datasets)
+        print(f"Target balanced size: {target_size}")
+        
+        if harmless_size < target_size:
+            repeat_factor = target_size / harmless_size
+            repeat_times = int(repeat_factor)
+            remainder = target_size - (repeat_times * harmless_size)
+            
+            if repeat_times > 0:
+                repeated_datasets = [harmless_combined] * repeat_times
+                if remainder > 0:
+                    remainder_dataset = harmless_combined.select(range(remainder))
+                    repeated_datasets.append(remainder_dataset)
+                harmless_combined = concatenate_datasets(repeated_datasets)
+            elif remainder > 0:
+                harmless_combined = harmless_combined.select(range(target_size))
+            
             harmless_combined = harmless_combined.shuffle(seed=42)
             print(f"Resampled harmless data size: {len(harmless_combined)}")
+        
+        if helpful_size > target_size:
+            helpful_combined = helpful_combined.select(range(target_size))
+            helpful_combined = helpful_combined.shuffle(seed=42)
+            print(f"Resampled helpful data size: {len(helpful_combined)}")
 
         combined_dataset = concatenate_datasets([harmless_combined, helpful_combined])
         print(f"Final combined data size: {len(combined_dataset)}")

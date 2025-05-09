@@ -141,41 +141,32 @@ trainer = FAMODPOTrainer(
 if Accelerator().is_local_main_process and script_args.peft_config:
     trainer.model.print_trainable_parameters()
 
-# 检查数据量和训练步数
-if Accelerator().is_local_main_process:
-    # 打印原始数据集大小
-    print(f"原始训练集大小: {len(train_dataset)}")
-    print(f"原始验证集大小: {len(eval_dataset)}")
-    
-    # 获取并打印dataloader长度
-    train_dataloader = trainer.get_train_dataloader()
-    print(f"FAMO 数据加载器长度: {len(train_dataloader)}")
-    
-    # 计算预期的训练步数
-    expected_steps = len(train_dataloader) * script_args.training_args.num_train_epochs
-    print(f"预期总训练步数: {expected_steps}")
-    
-    # 计算有效批次大小
-    effective_batch_size = (
-        script_args.training_args.per_device_train_batch_size * 
-        script_args.training_args.gradient_accumulation_steps * 
-        Accelerator().num_processes
-    )
-    print(f"有效批次大小: {effective_batch_size}")
-    
-    # 计算理论上处理的样本数
-    total_processed_samples = expected_steps * effective_batch_size
-    print(f"理论上处理的总样本数: {total_processed_samples}")
-    
-    # 如果使用TaskSpecificSampler，检查每个任务的数据分配
-    task_counts = {}
-    if hasattr(train_dataset, "features") and "task_id" in train_dataset.features:
-        for example in train_dataset:
-            task_id = example["task_id"]
-            if task_id not in task_counts:
-                task_counts[task_id] = 0
-            task_counts[task_id] += 1
-        print(f"每个任务的数据分布: {task_counts}")
+train_dataloader = trainer.get_train_dataloader()
+print(f"FAMO 数据加载器长度: {len(train_dataloader)}")
+
+# 计算预期的训练步数
+expected_steps = len(train_dataloader) * script_args.training_args.num_train_epochs
+print(f"预期总训练步数: {expected_steps}")
+
+# 计算有效批次大小
+effective_batch_size = (
+    script_args.training_args.per_device_train_batch_size * 
+    script_args.training_args.gradient_accumulation_steps * 
+    Accelerator().num_processes
+)
+print(f"有效批次大小: {effective_batch_size}")
+
+total_processed_samples = expected_steps * effective_batch_size
+print(f"理论上处理的总样本数: {total_processed_samples}")
+
+task_counts = {}
+if hasattr(train_dataset, "features") and "task_id" in train_dataset.features:
+    for example in train_dataset:
+        task_id = example["task_id"]
+        if task_id not in task_counts:
+            task_counts[task_id] = 0
+        task_counts[task_id] += 1
+    print(f"每个任务的数据分布: {task_counts}")
 
 trainer.train()
 

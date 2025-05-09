@@ -55,6 +55,7 @@ class ScriptArguments:
             remove_unused_columns=False,
             run_name="dev_famo_dpo",
             report_to="wandb",
+            max_steps=12000,
             num_train_epochs=3,
             logging_steps=10,
             save_steps=0.25,
@@ -140,33 +141,6 @@ trainer = FAMODPOTrainer(
 
 if Accelerator().is_local_main_process and script_args.peft_config:
     trainer.model.print_trainable_parameters()
-
-train_dataloader = trainer.get_train_dataloader()
-print(f"FAMO 数据加载器长度: {len(train_dataloader)}")
-
-# 计算预期的训练步数
-expected_steps = len(train_dataloader) * script_args.training_args.num_train_epochs
-print(f"预期总训练步数: {expected_steps}")
-
-# 计算有效批次大小
-effective_batch_size = (
-    script_args.training_args.per_device_train_batch_size * 
-    script_args.training_args.gradient_accumulation_steps * 
-    Accelerator().num_processes
-)
-print(f"有效批次大小: {effective_batch_size}")
-
-total_processed_samples = expected_steps * effective_batch_size
-print(f"理论上处理的总样本数: {total_processed_samples}")
-
-task_counts = {}
-if hasattr(train_dataset, "features") and "task_id" in train_dataset.features:
-    for example in train_dataset:
-        task_id = example["task_id"]
-        if task_id not in task_counts:
-            task_counts[task_id] = 0
-        task_counts[task_id] += 1
-    print(f"每个任务的数据分布: {task_counts}")
 
 trainer.train()
 

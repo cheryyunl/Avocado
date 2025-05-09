@@ -336,12 +336,14 @@ class FAMODPOTrainer(DPOTrainer):
 
         if self.args.n_gpu > 1:
             loss = loss.mean()
-    
-        if self.use_apex:
+
+        if self.do_grad_scaling:
+            self.scaler.scale(loss).backward()
+        elif self.use_apex:
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
-
-        self.accelerator.backward(loss)
+        else:
+            self.accelerator.backward(loss)
 
         all_losses = torch.zeros(self.n_tasks, device=loss.device)
         all_losses[task_id] = orig_loss.detach()

@@ -1,4 +1,4 @@
-from dpo_trainer import DPOTrainer
+from src.trainer.dpo_trainer import DPOTrainer, DPODataMapFunc, DPODataCollatorWithPadding
 from typing import Dict, List, Optional, Tuple, Union, Any
 import torch
 import torch.nn as nn

@@ -13,7 +13,6 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
-from transformers.trainer_pt_utils import smp_forward_backward
 import wandb
 
 

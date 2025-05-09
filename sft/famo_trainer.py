@@ -280,8 +280,7 @@ class FAMOSFTTrainer(SFTTrainer):
         return (loss, outputs) if return_outputs else loss
     
     def training_step(
-        self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
-    ) -> torch.Tensor:
+        self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         famo_w = F.softmax(self.w, -1)
 
         model.train()
@@ -316,11 +315,8 @@ class FAMOSFTTrainer(SFTTrainer):
         if self.use_apex:
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
-        else:
-            if num_items_in_batch is None:
-                loss = loss / self.args.gradient_accumulation_steps
 
-            self.accelerator.backward(loss)
+        self.accelerator.backward(loss)
 
         all_losses = torch.zeros(self.n_tasks, device=loss.device)
         all_losses[task_id] = orig_loss.detach()

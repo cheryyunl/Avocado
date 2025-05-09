@@ -220,9 +220,14 @@ def set_seeds(seed):
 
 
 def split_dataset(dataset):
-    task_ids = dataset['task_id'].squeeze()
+    task_ids = dataset['task_id']
+    
+    if hasattr(task_ids, 'squeeze'):
+        task_ids = task_ids.squeeze()
     if isinstance(task_ids, torch.Tensor):
-        task_ids = task_ids.cpu()  
+        task_ids = task_ids.cpu()
+    else:
+        task_ids = torch.tensor(task_ids)
     
     unique_tasks = torch.unique(task_ids)
     max_task = unique_tasks.max().item()
@@ -231,12 +236,14 @@ def split_dataset(dataset):
     for i in range(max_task + 1):
         task_counts[i] = (task_ids == i).sum()
     
-    start = 0
+    indices_by_task = [[] for _ in range(max_task + 1)]
+    for idx, task_id in enumerate(task_ids):
+        indices_by_task[task_id.item()].append(idx)
+    
     datasets = []
-    for size in task_counts:
-        end = start + size
-        datasets.append(dataset.select(range(start, end)))
-        start = end
+    for task_indices in indices_by_task:
+        if task_indices:  
+            datasets.append(dataset.select(task_indices))
     
     assert sum(len(d) for d in datasets) == len(dataset)
     return datasets

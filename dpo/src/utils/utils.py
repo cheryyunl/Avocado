@@ -217,3 +217,26 @@ def set_seeds(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
+
+
+def split_dataset(dataset):
+    task_ids = dataset['task_id'].squeeze()
+    if isinstance(task_ids, torch.Tensor):
+        task_ids = task_ids.cpu()  
+    
+    unique_tasks = torch.unique(task_ids)
+    max_task = unique_tasks.max().item()
+    
+    task_counts = torch.zeros(max_task + 1, dtype=torch.long)
+    for i in range(max_task + 1):
+        task_counts[i] = (task_ids == i).sum()
+    
+    start = 0
+    datasets = []
+    for size in task_counts:
+        end = start + size
+        datasets.append(dataset.select(range(start, end)))
+        start = end
+    
+    assert sum(len(d) for d in datasets) == len(dataset)
+    return datasets

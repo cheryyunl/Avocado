@@ -208,8 +208,9 @@ class FAMODPOTrainer(DPOTrainer):
         train_dataset,
         peft_config=None,
         packing=False,
-        dataset_text_field="text",
         data_collator=None,
+        tokenize_map_func=None,
+        tokenizer=None,
         n_tasks: int=2,
         gamma: float = 0.01,
         w_lr: float = 0.01,
@@ -218,13 +219,15 @@ class FAMODPOTrainer(DPOTrainer):
         init_steps = None,
         **trainer_args
     ):
+
         super().__init__(
             model=model,
             args=args,
             train_dataset=train_dataset,
             peft_config=peft_config,
-            dataset_text_field=dataset_text_field,
             data_collator=data_collator,
+            tokenize_map_func=tokenize_map_func,
+            tokenizer=tokenizer,
             **trainer_args
         )
         self.step_count = 0

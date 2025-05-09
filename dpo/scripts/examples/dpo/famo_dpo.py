@@ -8,7 +8,7 @@ from accelerate import Accelerator
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 
-from src.trainer.famo_dpo_trainer import FAMODPOTrainer
+from src.trainer.famo_dpo_trainer import FAMODPOTrainer, DPODataMapFunc, DPODataCollatorWithPadding
 from src.data.configs import DATASET_CONFIGS, DEFAULT_PROMPT_TEMPLATE
 from src.utils import print_local_main, disable_progress_bar_non_local_main, param_sharding_enabled, set_seeds
 
@@ -101,6 +101,8 @@ print_local_main(script_args.peft_config)
 tokenizer = AutoTokenizer.from_pretrained(script_args.sft_model_name, trust_remote_code=True)
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "right"
+data_collator = DPODataCollatorWithPadding(tokenizer=tokenizer, label_pad_token_id=-100)
+tokenize_map_func = DPODataMapFunc(tokenizer=tokenizer, label_pad_token_id=-100)
 
 # dataset
 if not script_args.dataset_caching:
@@ -123,6 +125,8 @@ trainer = FAMODPOTrainer(
     eval_dataset=eval_dataset,
     tokenizer=tokenizer,
     peft_config=script_args.peft_config,
+    data_collator=data_collator,
+    tokenize_map_func=tokenize_map_func,
     max_length=script_args.max_length,
     num_proc=script_args.num_proc,
     generate_during_eval=script_args.generate_during_eval,

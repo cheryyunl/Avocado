@@ -220,13 +220,18 @@ def set_seeds(seed):
 
 
 def split_dataset(dataset):
+    # 获取task_id
     task_ids = dataset['task_id']
     
+    # 处理不同格式的task_id
     if hasattr(task_ids, 'squeeze'):
         task_ids = task_ids.squeeze()
+    
+    # 将task_id转换为tensor以便处理
     if isinstance(task_ids, torch.Tensor):
         task_ids = task_ids.cpu()
     else:
+        # 如果是列表或其他类型，转换为tensor
         task_ids = torch.tensor(task_ids)
     
     unique_tasks = torch.unique(task_ids)
@@ -236,14 +241,16 @@ def split_dataset(dataset):
     for i in range(max_task + 1):
         task_counts[i] = (task_ids == i).sum()
     
+    # 按task_id分割数据集
     indices_by_task = [[] for _ in range(max_task + 1)]
     for idx, task_id in enumerate(task_ids):
         indices_by_task[task_id.item()].append(idx)
     
     datasets = []
     for task_indices in indices_by_task:
-        if task_indices:  
+        if task_indices:  # 只添加非空数据集
             datasets.append(dataset.select(task_indices))
     
-    assert sum(len(d) for d in datasets) == len(dataset)
+    # 验证分割后的总数据量与原始数据集相同
+    assert sum(len(d) for d in datasets) == len(dataset), "数据集分割后总数量与原始数量不一致"
     return datasets

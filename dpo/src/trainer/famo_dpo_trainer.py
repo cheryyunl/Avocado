@@ -273,7 +273,9 @@ class FAMODPOTrainer(DPOTrainer):
             dataloader_params["drop_last"] = self.args.dataloader_drop_last
             dataloader_params["worker_init_fn"] = seed_worker
 
-        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+        task_datasets = split_dataset(train_dataset)
+        task_id = self.sampler.task_id
+        return self.accelerator.prepare(DataLoader(task_datasets[task_id], **dataloader_params))
     
     def eval_batch_metrics(self, model, inputs):
         with torch.no_grad():

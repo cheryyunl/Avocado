@@ -144,6 +144,8 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
             helpful_combined = helpful_combined.shuffle(seed=42)
             helpful_combined = helpful_combined.map(lambda x: {"task_id": 1})
             print(f"Downsized helpful data size: {len(helpful_combined)}")
+        else:
+            helpful_combined = helpful_combined.map(lambda x: {"task_id": 1})
 
         combined_dataset = concatenate_datasets([harmless_combined, helpful_combined])
         print(f"Final combined data size: {len(combined_dataset)}")

@@ -42,8 +42,6 @@ class HhRlhfRDP(RawDatasetPreprocessor):
                 ds = load_dataset(self.path, data_dir=data_dir, split='test')
             else:
                 ds = load_dataset(self.path, data_dir=data_dir, split=split)
-            # 为所有示例添加task_id=0
-            ds = ds.map(lambda x: {"task_id": 0})
             all_datasets.append(ds)
             print(f"Successfully loaded {data_dir}, split: {split}, size: {len(ds)}")
         
@@ -65,15 +63,10 @@ class HhRlhfRDP(RawDatasetPreprocessor):
         example["chosen"]   = preprocess_anthropic_prompt_and_response(example["chosen"])
         example["rejected"] = preprocess_anthropic_prompt_and_response(example["rejected"])
         prompt = extract_anthropic_prompt_and_response(example["chosen"])
-        
-        # 对于没有task_id的样本，添加默认值0
-        task_id = example.get("task_id", 0)
-        
         return {
             "prompt":   prompt,
             "chosen":   example["chosen"][len(prompt) :],
             "rejected": example["rejected"][len(prompt) :],
-            "task_id":  task_id
         }
     
 @dataclass

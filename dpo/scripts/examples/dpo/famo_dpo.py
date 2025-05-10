@@ -146,6 +146,7 @@ print(f"Batch size: {trainer.args.per_device_train_batch_size}")
 print(f"Gradient accumulation steps: {trainer.args.gradient_accumulation_steps}")
 print(f"Number of GPUs: {trainer.args.world_size}")
 print(f"Expected steps per epoch: {len(trainer.train_dataset) / (trainer.args.per_device_train_batch_size * trainer.args.gradient_accumulation_steps * trainer.args.world_size)}")
+print(f"DataLoader length: {len(trainer.get_train_dataloader())}")
 
 trainer.train()
 

@@ -47,7 +47,7 @@ class ScriptArguments:
             per_device_train_batch_size=2,
             per_device_eval_batch_size=2,
             gradient_accumulation_steps=4,
-            learning_rate=5e-5,
+            learning_rate=3e-5,
             lr_scheduler_type="cosine",
             warmup_steps=0.1,
             weight_decay=0.05,
@@ -140,13 +140,6 @@ trainer = FAMODPOTrainer(
 
 if Accelerator().is_local_main_process and script_args.peft_config:
     trainer.model.print_trainable_parameters()
-
-print(f"Dataset length: {len(trainer.train_dataset)}")
-print(f"Batch size: {trainer.args.per_device_train_batch_size}")
-print(f"Gradient accumulation steps: {trainer.args.gradient_accumulation_steps}")
-print(f"Number of GPUs: {trainer.args.world_size}")
-print(f"Expected steps per epoch: {len(trainer.train_dataset) / (trainer.args.per_device_train_batch_size * trainer.args.gradient_accumulation_steps * trainer.args.world_size)}")
-print(f"DataLoader length: {len(trainer.get_train_dataloader())}")
 
 trainer.train()
 

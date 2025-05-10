@@ -76,15 +76,13 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
     helpful_subdatasets: Optional[List[str]] = None
     
     def __post_init__(self):
-        if self.harmless_subdatasets is None:
-            self.harmless_subdatasets = ["harmless-base"]
+        self.harmless_subdatasets = ["harmless-base"]
         
-        if self.helpful_subdatasets is None:
-            self.helpful_subdatasets = [
-                "helpful-base",
-                "helpful-online",
-                "helpful-rejection-sampled",
-            ]
+        self.helpful_subdatasets = [
+            "helpful-base",
+            "helpful-online",
+            "helpful-rejection-sampled",
+        ]
 
     def _get_raw_dataset(self, split):
         # 加载所有数据集
@@ -220,13 +218,12 @@ class TestHhRlhfRDP(RawDatasetPreprocessor):
     subdatasets: Optional[List[str]] = None
 
     def __post_init__(self):
-        if self.subdatasets is None:
-            self.subdatasets = [
-                "helpful-base", 
-                "helpful-online", 
-                "helpful-rejection-sampled",
-                "harmless-base"
-            ]
+        self.subdatasets = [
+            "helpful-base", 
+            "helpful-online", 
+            "helpful-rejection-sampled",
+            "harmless-base"
+        ]
 
     def _get_raw_dataset(self, split):
         all_datasets = []

@@ -55,7 +55,7 @@ class ScriptArguments:
             remove_unused_columns=False,
             run_name="dev_famo_dpo",
             report_to="wandb",
-            max_steps=5000,
+            max_steps=10000,
             logging_steps=10,
             save_steps=0.25,
             eval_steps=0.25,

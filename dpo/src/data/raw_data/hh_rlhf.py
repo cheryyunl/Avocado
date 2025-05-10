@@ -117,7 +117,7 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
         print(f"Original harmless data size: {harmless_size}")
         print(f"Original helpful data size: {helpful_size}")
 
-        target_size = min(harmless_size, helpful_size) * 2
+        target_size = max(harmless_size, helpful_size)
         
         print(f"Target balanced size: {target_size}")
         

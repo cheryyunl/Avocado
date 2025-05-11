@@ -22,7 +22,7 @@ tqdm.pandas()
 # define paths for two datasets
 hhrlhf_dataset_path = 'Anthropic/hh-rlhf'
 summary_dataset_path = 'openai/summarize_from_feedback'
-model_path = '/cmlscratch/cheryll/Llama-2-7b-hf'
+model_path = '/cmlscratch/cheryunl/Llama-2-7b-hf'
 helpsteer_dataset_path = 'cheryyunl/helpsteer'
 
 

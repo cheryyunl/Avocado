@@ -13,6 +13,7 @@ from .raw_data import (
     SummarizeFromFeedbackRDP, 
     HelpSteerRDP,
     MTHelpSteerRDP,
+    MixedHelpSteerRDP,  
     UltraFeedbackRDP,
 )
 from .raw_data.utils import DEFAULT_PROMPT_TEMPLATE
@@ -56,6 +57,7 @@ REAL_DATASET_CONFIGS: Dict[str, RawDatasetPreprocessor] = {
         for dimension in ["overall", "helpfulness", "correctness", "coherence", "complexity", "verbosity"]
     },
     "nvidia/HelpSteer-mt": MTHelpSteerRDP,
+    "nvidia/HelpSteer-mixed": MixedHelpSteerRDP,
 }
 
 

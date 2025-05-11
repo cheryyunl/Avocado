@@ -195,6 +195,83 @@ class MTHelpSteerRDP(RawDatasetPreprocessor):
             "rejected": example["rejected"],
             "task_id": example["task_id"]
         }
+
+@dataclass
+class MixedHelpSteerRDP(RawDatasetPreprocessor):
+    path: Optional[str] = "nvidia/HelpSteer"
+    dimensions: Optional[List[Literal["helpfulness", "correctness", "coherence", "complexity"]]] = None
+    
+    def __post_init__(self):
+        if self.dimensions is None:
+            self.dimensions = ["helpfulness", "correctness", "coherence", "complexity"]
+    
+    def _get_raw_dataset(self, split):
+        dimension_datasets = []
+        
+        for i, dimension in enumerate(self.dimensions):
+            dimension_rdp = HelpSteerRDP(
+                path=self.path,
+                dimension=dimension,
+                prompt_template=self.prompt_template,
+                num_proc=self.num_proc,
+                sanity_check=self.sanity_check
+            )
+            
+            ds = dimension_rdp.get_preference_dataset(split=split)
+            print_local_main(f"Successfully loaded dimension: {dimension}, split: {split}, size: {len(ds)}")
+            dimension_datasets.append(ds)
+        
+        if not dimension_datasets:
+            raise ValueError(f"No datasets were successfully loaded for split: {split}")
+        
+        dimension_sizes = [len(ds) for ds in dimension_datasets]
+        print_local_main(f"Original dimension data sizes: {dict(zip(self.dimensions, dimension_sizes))}")
+        
+        target_size = max(dimension_sizes)
+        print_local_main(f"Target balanced size: {target_size}")
+        
+        balanced_datasets = []
+        for i, (dimension, ds) in enumerate(zip(self.dimensions, dimension_datasets)):
+            dimension_size = len(ds)
+            
+            if dimension_size < target_size:
+                repeat_factor = target_size / dimension_size
+                repeat_times = int(repeat_factor)
+                remainder = target_size - (repeat_times * dimension_size)
+                
+                if repeat_times > 0:
+                    repeated_datasets = [ds] * repeat_times
+                    if remainder > 0:
+                        remainder_dataset = ds.select(range(remainder))
+                        repeated_datasets.append(remainder_dataset)
+                    balanced_ds = concatenate_datasets(repeated_datasets)
+                elif remainder > 0:
+                    balanced_ds = ds.select(range(target_size))
+                
+                print_local_main(f"Resampled {dimension} data size: {len(balanced_ds)}")
+            
+            elif dimension_size > target_size:
+                balanced_ds = ds.select(range(target_size))
+                print_local_main(f"Downsized {dimension} data size: {len(balanced_ds)}")
+            
+            else:
+                balanced_ds = ds
+            
+            balanced_datasets.append(balanced_ds)
+        
+        combined_dataset = concatenate_datasets(balanced_datasets)
+        combined_dataset = combined_dataset.shuffle(seed=42)
+        print_local_main(f"Final combined data size: {len(combined_dataset)}")
+        
+        return combined_dataset
+    
+    def _dataset_to_preference_formatter(self, example) -> Dict[str, str]:
+        return {
+            "prompt": example["prompt"],
+            "chosen": example["chosen"],
+            "rejected": example["rejected"]
+        }
+    
 if __name__ == "__main__":
     num_proc = 4
     helpful_dataset = HelpSteerRDP(dimension="helpfulness", num_proc=num_proc).get_preference_dataset(split="train")

@@ -8,7 +8,7 @@ import torch
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, HfArgumentParser, DataCollatorWithPadding
-from peft import PeftModel
+from peft import PeftModel, PeftConfig
 from trl import set_seed
 import numpy as np
 import pandas as pd
@@ -166,12 +166,12 @@ summary_dataset_path = 'openai/summarize_from_feedback'
 @dataclass
 class ScriptArguments:
     save_directory: Optional[str] = field(default='./logs_trl')
-    base_model_name: Optional[str] = field(default='./huggingface_models/Llama-2-7b-hf')
+    base_model_name: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/sft/logs_trl/avocado/sft_famo_0.5')
+    dpo_model_path: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/dpo/output/dev/famo_dpo/best_checkpoint')
     wandb_name: Optional[str] = field(default='evalnew_assistant_pretrained_harmless_helpful', metadata={"help": "Name for this experiment"})
     reward_names:Optional[str] = field(default='harmless,helpful') 
     exp_type: Optional[str] = field(default='assistant', metadata={"help": "exp type, 'summary' or 'assistant' "})
-    
-    # 新增参数用于reward引导生成
+
     beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence, paper used w=1.5 for LLaMA-7B"})
     topk: Optional[int] = field(default=10, metadata={"help": "topk parameter for candidate tokens, paper used k=10"})
     preference_weights: Optional[str] = field(default="0.5,0.5", metadata={"help": "comma-separated weights for reward models"})
@@ -181,8 +181,12 @@ parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
 exp_type = script_args.exp_type
 base_model_name = script_args.base_model_name
+dpo_model_path = script_args.dpo_model_path
 tokenizer_name = script_args.base_model_name
-print('base model: ', base_model_name)
+
+model_path = dpo_model_path if (dpo_model_path is not None and os.path.exists(dpo_model_path)) else base_model_name
+model_type = "DPO" if model_path == dpo_model_path else "SFT"
+print(f"Using {model_type} model for evaluation: {model_path}")
 
 process_id = Accelerator().local_process_index 
 gpu_id = process_id 
@@ -215,16 +219,27 @@ os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), ex
 
 set_seed(8888)
 tokenizer = load_main_tokenizer(tokenizer_name)
-model = AutoModelForCausalLM.from_pretrained(
-    base_model_name, 
-    torch_dtype=torch.bfloat16,  # faster inference than 8bit
-    device_map=gpu_id, 
-)
-############# very important for padding
-model.resize_token_embeddings(len(tokenizer))
-if check_lora_in_model_path(model, base_model_name):
-    model = PeftModel.from_pretrained(model, base_model_name)
+if os.path.exists(os.path.join(model_path, "adapter_config.json")):
+    print("Loading model as PEFT adapter...")
+    base_model = AutoModelForCausalLM.from_pretrained(
+        base_model_name, 
+        torch_dtype=torch.bfloat16,
+        device_map=gpu_id,
+    )
+    base_model.resize_token_embeddings(len(tokenizer))
+
+    peft_config = PeftConfig.from_pretrained(model_path)
+    model = PeftModel.from_pretrained(base_model, model_path)
+else:
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, 
+        torch_dtype=torch.bfloat16,
+        device_map=gpu_id,
+    )
+    model.resize_token_embeddings(len(tokenizer))
+
 if hasattr(model, 'merge_and_unload'):
+    print("Merging and unloading adapters...")
     model = model.merge_and_unload()
 
 generation_kwargs = {
@@ -232,7 +247,7 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 0.9, 
-    "do_sample": False,
+    "do_sample": True,
 }
 
 

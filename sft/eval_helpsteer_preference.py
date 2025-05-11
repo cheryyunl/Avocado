@@ -24,6 +24,153 @@ HELPSTEER_ATTRIBUTES = [
     'helpsteer-complexity'  
 ]
 
+GUIDANCE_INDICES = [0, 1, 2, 4]
+GUIDANCE_ATTRIBUTES = [HELPSTEER_ATTRIBUTES[i] for i in GUIDANCE_INDICES]
+
+def reward_guided_generate(
+    model, 
+    reward_model, 
+    input_ids, 
+    attention_mask, 
+    tokenizer,
+    preference_weights=None,
+    beta=0.5,   # reward影响系数
+    topk=10,    # 考虑的候选token数量
+    **generation_kwargs
+):
+    """使用reward model实时引导生成的函数"""
+    batch_size = input_ids.size(0)
+    device = input_ids.device
+    
+    # 如果没有提供权重，默认平均分配
+    if preference_weights is None:
+        preference_weights = [1.0 / len(GUIDANCE_INDICES)] * len(GUIDANCE_INDICES)
+    else:
+        # 归一化权重
+        total = sum(preference_weights)
+        preference_weights = [w / total for w in preference_weights]
+
+    curr_input_ids = input_ids.clone()
+    curr_attention_mask = attention_mask.clone()
+
+    unfinished = torch.ones(batch_size, dtype=torch.bool, device=device)
+    max_length = curr_input_ids.size(1) + generation_kwargs.get("max_new_tokens", 128)
+
+    cached_output = None
+    
+    for _ in range(max_length - curr_input_ids.size(1)):
+        if not unfinished.any():
+            break
+
+        with torch.no_grad():
+            if cached_output is None:
+                model_outputs = model(
+                    input_ids=curr_input_ids,
+                    attention_mask=curr_attention_mask,
+                    use_cache=True
+                )
+                cached_output = model_outputs.past_key_values
+            else:
+                model_outputs = model(
+                    input_ids=curr_input_ids[:, -1].unsqueeze(-1),
+                    attention_mask=curr_attention_mask,
+                    past_key_values=cached_output,
+                    use_cache=True
+                )
+                cached_output = model_outputs.past_key_values
+
+            logits = model_outputs.logits[:, -1, :]
+
+            if "temperature" in generation_kwargs and generation_kwargs["temperature"] > 0:
+                logits = logits / generation_kwargs["temperature"]
+            
+            top_logits, top_indices = torch.topk(logits, topk, dim=-1)
+            
+            if "top_p" in generation_kwargs and generation_kwargs["top_p"] < 1.0:
+                top_p = generation_kwargs["top_p"]
+                cumulative_probs = torch.softmax(top_logits, dim=-1)
+                cumulative_probs = torch.cumsum(cumulative_probs, dim=-1)
+                mask = cumulative_probs < top_p
+                mask = torch.cat([torch.ones_like(mask[:, :1], dtype=torch.bool), mask[:, :-1]], dim=1)
+                top_indices = top_indices.masked_select(mask).view(batch_size, -1)
+                top_logits = top_logits.masked_select(mask).view(batch_size, -1)
+                topk = min(topk, top_indices.size(1))
+            
+            top_probs = torch.softmax(top_logits, dim=-1)
+
+            next_tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
+            
+            for b in range(batch_size):
+                if not unfinished[b]:
+                    continue
+
+                candidate_input_ids = []
+                for t in range(topk):
+                    if t < top_indices.size(1):  
+                        candidate = torch.cat([
+                            curr_input_ids[b:b+1],
+                            top_indices[b:b+1, t:t+1]
+                        ], dim=1)
+                        candidate_input_ids.append(candidate)
+                
+                if not candidate_input_ids:  
+                    continue
+                    
+                candidate_batch = torch.cat(candidate_input_ids, dim=0)
+                candidate_texts = tokenizer.batch_decode(candidate_batch, skip_special_tokens=True)
+
+                # 提取原始prompt
+                prompt_text = tokenizer.decode(input_ids[b], skip_special_tokens=True)
+                prompt_text = prompt_text.replace("Human: ", "").replace("\nAssistant: ", "")
+                
+                # 提取每个候选的response部分
+                query_response_pairs = []
+                for text in candidate_texts:
+                    if text.startswith(prompt_text):
+                        response = text[len(prompt_text):]
+                    else:
+                        response = text
+                    query_response_pairs.append((prompt_text, response.strip()))
+
+                # 评估候选响应
+                rewards_list = reward_model.get_reward_scores(query_response_pairs)
+
+                # 计算加权reward
+                weighted_rewards = torch.zeros(len(candidate_input_ids), device=device)
+                for i, idx in enumerate(GUIDANCE_INDICES):
+                    if idx < len(rewards_list) and rewards_list[idx]:
+                        reward_tensor = torch.tensor(rewards_list[idx], device=device)
+                        if reward_tensor.dim() > 1:
+                            reward_tensor = reward_tensor.squeeze()
+                        weighted_rewards += preference_weights[i] * reward_tensor
+
+                # 结合语言模型分数和reward分数
+                combined_scores = top_logits[b, :len(candidate_input_ids)] + beta * weighted_rewards
+
+                # 根据生成参数决定是采样还是贪婪选择
+                if generation_kwargs.get("do_sample", True):
+                    sampling_probs = torch.softmax(combined_scores / generation_kwargs.get("temperature", 1.0), dim=0)
+                    next_token_idx = torch.multinomial(sampling_probs, num_samples=1)[0]
+                else:
+                    next_token_idx = torch.argmax(combined_scores)
+
+                if next_token_idx < top_indices.size(1):
+                    next_tokens[b] = top_indices[b, next_token_idx]
+
+            # 更新输入序列
+            next_tokens = next_tokens.unsqueeze(1)
+            curr_input_ids = torch.cat([curr_input_ids, next_tokens], dim=1)
+            curr_attention_mask = torch.cat([
+                curr_attention_mask, 
+                torch.ones((batch_size, 1), dtype=torch.long, device=device)
+            ], dim=1)
+            
+            # 更新完成状态
+            eos_mask = next_tokens.squeeze(1) == tokenizer.eos_token_id
+            unfinished = unfinished & ~eos_mask
+    
+    return curr_input_ids
+
 class HelpSteerRewardModel:
     def __init__(self, model_path="RLHFlow/RewardModel-Mistral-7B-for-DPA-v1", device="cuda"):
         self.device = device
@@ -106,6 +253,12 @@ class ScriptArguments:
     reward_model_path: Optional[str] = field(default='RLHFlow/RewardModel-Mistral-7B-for-DPA-v1')
     num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
+    
+    # 新增参数，用于reward引导生成
+    beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence"})
+    topk: Optional[int] = field(default=10, metadata={"help": "topk parameter for candidate tokens"})
+    preference_weights: Optional[str] = field(default="0.7,0.1,0.1,0.1", metadata={"help": "comma-separated weights for reward dimensions"})
+    use_reward_guidance: Optional[bool] = field(default=False, metadata={"help": "whether to use reward-guided generation"})
 
 def main():
     parser = HfArgumentParser(ScriptArguments)
@@ -114,6 +267,12 @@ def main():
     tokenizer_name = script_args.base_model_name
     dpo_model_path = script_args.dpo_model_path
     
+    # 解析preference_weights参数
+    preference_weights = [float(x.strip()) for x in script_args.preference_weights.split(',')]
+    if len(preference_weights) != len(GUIDANCE_INDICES):
+        print(f"Warning: preference_weights length ({len(preference_weights)}) doesn't match guidance attributes length ({len(GUIDANCE_INDICES)})")
+        print(f"Using dimensions: {GUIDANCE_ATTRIBUTES}")
+
     model_path = dpo_model_path if (dpo_model_path is not None and os.path.exists(dpo_model_path)) else base_model_name
     model_type = "DPO" if model_path == dpo_model_path else "SFT"
     print(f"Using {model_type} model for evaluation: {model_path}")
@@ -153,6 +312,10 @@ def main():
         )
         model.resize_token_embeddings(len(tokenizer))
     
+    # 如果模型有merge_and_unload方法，则使用它
+    if hasattr(model, 'merge_and_unload'):
+        print("Merging and unloading adapters...")
+        model = model.merge_and_unload()
 
     reward_model = HelpSteerRewardModel(script_args.reward_model_path, device=f"cuda:{gpu_id}")
     
@@ -163,6 +326,7 @@ def main():
         "top_k": 0.0,
         "top_p": 0.9, 
         "do_sample": True,
+        "temperature": 0.7,
     }
     
     # 加载评估数据集
@@ -206,12 +370,30 @@ def main():
             if 'original_prompt' in batch:
                 original_prompts.extend(batch['original_prompt'])
             
-            # 生成回复
-            response_tensors = accelerator.unwrap_model(model).generate(
-                batch['input_ids'], 
-                attention_mask=batch['attention_mask'], 
-                **generation_kwargs
-            )
+            # 根据参数决定是否使用reward引导生成
+            if script_args.use_reward_guidance:
+                if i == 0:  # 只在第一个批次打印
+                    print(f"GPU {gpu_id} using reward-guided generation (beta={script_args.beta}, topk={script_args.topk})...")
+                
+                # 使用reward引导生成函数
+                response_tensors = reward_guided_generate(
+                    accelerator.unwrap_model(model),
+                    reward_model,
+                    batch['input_ids'], 
+                    batch['attention_mask'],
+                    tokenizer,
+                    preference_weights=preference_weights,
+                    beta=script_args.beta,
+                    topk=script_args.topk,
+                    **generation_kwargs
+                )
+            else:
+                # 使用原始的generate函数
+                response_tensors = accelerator.unwrap_model(model).generate(
+                    batch['input_ids'], 
+                    attention_mask=batch['attention_mask'], 
+                    **generation_kwargs
+                )
             
             full_response_tensors.extend(response_tensors)
             full_prompts.extend(batch['input_ids'])
@@ -269,11 +451,21 @@ def main():
         
         # 保存结果到CSV
         dataframe = pd.DataFrame(evaluation_result)
-        filename = os.path.join(
-            script_args.save_directory, 
-            script_args.wandb_name,
-            'helpsteer_eval_results.csv'
-        )
+        
+        # 修改文件名以反映使用的生成方法
+        if script_args.use_reward_guidance:
+            filename = os.path.join(
+                script_args.save_directory, 
+                script_args.wandb_name,
+                f'helpsteer_eval_results_reward_guided_beta{script_args.beta}_topk{script_args.topk}.csv'
+            )
+        else:
+            filename = os.path.join(
+                script_args.save_directory, 
+                script_args.wandb_name,
+                'helpsteer_eval_results.csv'
+            )
+        
         dataframe.to_csv(filename)
         print(f"Results saved to {filename}")
 

@@ -38,8 +38,10 @@ exp_type = script_args.exp_type
 base_model_name = script_args.base_model_name
 dpo_model_path = script_args.dpo_model_path
 tokenizer_name = script_args.base_model_name
-print('base model: ', base_model_name)
-print('dpo model: ', dpo_model_path)
+
+model_path = dpo_model_path if (dpo_model_path is not None and os.path.exists(dpo_model_path)) else base_model_name
+model_type = "DPO" if model_path == dpo_model_path else "SFT"
+print(f"Using {model_type} model for evaluation: {model_path}")
 
 process_id = Accelerator().local_process_index 
 gpu_id = process_id 
@@ -69,23 +71,20 @@ os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), ex
 set_seed(8888)
 tokenizer = load_main_tokenizer(tokenizer_name)
 
-print("Loading DPO model...")
-if os.path.exists(os.path.join(dpo_model_path, "adapter_config.json")):
-    print("Loading DPO model as PEFT adapter...")
+if os.path.exists(os.path.join(model_path, "adapter_config.json")):
+    print("Loading model as PEFT adapter...")
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name, 
         torch_dtype=torch.bfloat16,
         device_map=gpu_id,
     )
     base_model.resize_token_embeddings(len(tokenizer))
-    
-    # 加载适配器
-    peft_config = PeftConfig.from_pretrained(dpo_model_path)
-    model = PeftModel.from_pretrained(base_model, dpo_model_path)
+
+    peft_config = PeftConfig.from_pretrained(model_path)
+    model = PeftModel.from_pretrained(base_model, model_path)
 else:
-    # 直接加载完整模型
     model = AutoModelForCausalLM.from_pretrained(
-        dpo_model_path, 
+        model_path, 
         torch_dtype=torch.bfloat16,
         device_map=gpu_id,
     )

@@ -8,7 +8,7 @@ import torch
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, HfArgumentParser, DataCollatorWithPadding
-from peft import PeftModel
+from peft import PeftModel, PeftConfig
 from trl import set_seed
 import numpy as np
 import pandas as pd
@@ -167,7 +167,7 @@ summary_dataset_path = 'openai/summarize_from_feedback'
 class ScriptArguments:
     save_directory: Optional[str] = field(default='./logs_trl')
     base_model_name: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/sft/logs_trl/avocado/sft_famo_0.5')
-    dpo_model_path: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/dpo/output/dev/dpo/best_checkpoint')
+    dpo_model_path: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/dpo/output/dev/famo_dpo/best_checkpoint')
     wandb_name: Optional[str] = field(default='evalnew_assistant_pretrained_harmless_helpful', metadata={"help": "Name for this experiment"})
     reward_names:Optional[str] = field(default='harmless,helpful') 
     exp_type: Optional[str] = field(default='assistant', metadata={"help": "exp type, 'summary' or 'assistant' "})

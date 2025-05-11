@@ -100,11 +100,11 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 0.9, 
-    "do_sample": False,
+    "do_sample": True,
 }
 
 print('Evaluating DPO model...')
-tokenizer.padding_side = "left"
+tokenizer.padding_side = "right"
 
 if exp_type == 'assistant':
     valid_dataset = build_dataset_eval(hhrlhf_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test') 

@@ -12,6 +12,7 @@ from .raw_data import (
     StackExchangePairedRDP,
     SummarizeFromFeedbackRDP, 
     HelpSteerRDP,
+    MTHelpSteerRDP,
     UltraFeedbackRDP,
 )
 from .raw_data.utils import DEFAULT_PROMPT_TEMPLATE
@@ -54,6 +55,7 @@ REAL_DATASET_CONFIGS: Dict[str, RawDatasetPreprocessor] = {
         f"nvidia/HelpSteer-pairwise-{dimension}": partial(HelpSteerRDP, dimension=dimension)
         for dimension in ["overall", "helpfulness", "correctness", "coherence", "complexity", "verbosity"]
     },
+    "nvidia/HelpSteer-mt": MTHelpSteerRDP,
 }
 
 

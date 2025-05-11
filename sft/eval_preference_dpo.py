@@ -248,7 +248,7 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 0.9, 
-    "do_sample": False,
+    "do_sample": True,
 }
 
 

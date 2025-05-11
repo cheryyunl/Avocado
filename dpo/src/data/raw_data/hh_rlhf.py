@@ -150,14 +150,8 @@ class MTHhRlhfRDP(RawDatasetPreprocessor):
         combined_dataset = concatenate_datasets([harmless_combined, helpful_combined])
         print(f"Final combined data size: {len(combined_dataset)}")
         
-        if split == "train":
-            return combined_dataset.train_test_split(test_size=0.1, seed=0)["train"]
-        elif split == "validation":
-            return combined_dataset.train_test_split(test_size=0.1, seed=0)["test"]
-        elif split == "test":
-            return combined_dataset
-        else:
-            raise NotImplementedError
+        return combined_dataset
+
 
     def _dataset_to_preference_formatter(self, example) -> Dict[str, str]:
         example["chosen"]   = preprocess_anthropic_prompt_and_response(example["chosen"])

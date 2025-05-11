@@ -104,7 +104,7 @@ class ScriptArguments:
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='nvidia/HelpSteer', metadata={"help": "Dataset to evaluate on"})
     reward_model_path: Optional[str] = field(default='RLHFlow/RewardModel-Mistral-7B-for-DPA-v1')
-    num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
+    num_samples: Optional[int] = field(default=0, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
 
 def main():

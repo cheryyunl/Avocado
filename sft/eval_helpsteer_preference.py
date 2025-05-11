@@ -251,14 +251,14 @@ class ScriptArguments:
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='nvidia/HelpSteer', metadata={"help": "Dataset to evaluate on"})
     reward_model_path: Optional[str] = field(default='RLHFlow/RewardModel-Mistral-7B-for-DPA-v1')
-    num_samples: Optional[int] = field(default=400, metadata={"help": "Total number of samples to evaluate (0 for all)"})
+    num_samples: Optional[int] = field(default=0, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
     
     # 新增参数，用于reward引导生成
     beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence"})
     topk: Optional[int] = field(default=10, metadata={"help": "topk parameter for candidate tokens"})
     preference_weights: Optional[str] = field(default="0.7,0.1,0.1,0.1", metadata={"help": "comma-separated weights for reward dimensions"})
-    use_reward_guidance: Optional[bool] = field(default=False, metadata={"help": "whether to use reward-guided generation"})
+    use_reward_guidance: Optional[bool] = field(default=True, metadata={"help": "whether to use reward-guided generation"})
 
 def main():
     parser = HfArgumentParser(ScriptArguments)

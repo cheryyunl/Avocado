@@ -286,7 +286,8 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 1.0, 
-    "do_sample": True,
+    "do_sample": False,
+    "temperature": 0.3,
 }
 
 

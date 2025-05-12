@@ -292,8 +292,8 @@ with torch.no_grad():
                 batch['attention_mask'],
                 instructions,
                 preference_weights=preference_weights,
-                beta=script_args.beta,  
-                topk=script_args.topk,  
+                beta=script_args.beta,  # 基于论文的最佳参数 
+                topk=script_args.topk,  # 基于论文的最佳参数
                 **generation_kwargs
             )
         else:

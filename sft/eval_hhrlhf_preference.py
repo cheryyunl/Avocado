@@ -259,6 +259,8 @@ size = script_args.num_samples if script_args.num_samples > 0 else None
 valid_dataset = build_dataset_eval(
     hhrlhf_dataset_path, 
     tokenizer, 
+    reward_models.rm_tokenizers[0],
+    reward_models.rm_tokenizers[1],
     split='test',
     size=size
 )

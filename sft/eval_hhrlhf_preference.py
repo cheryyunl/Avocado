@@ -256,10 +256,10 @@ generation_kwargs = {
 print('evaluation........')
 tokenizer.padding_side = "left"
 size = script_args.num_samples if script_args.num_samples > 0 else None
-valid_dataset = build_helpsteer_eval_dataset(
-    script_args.dataset_path, 
+valid_dataset = build_dataset_eval(
+    hhrlhf_dataset_path, 
     tokenizer, 
-    split=script_args.split,
+    split='test',
     size=size
 )
 size = script_args.num_samples if script_args.num_samples > 0 else None

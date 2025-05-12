@@ -170,6 +170,7 @@ class ScriptArguments:
     dpo_model_path: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/dpo/output/dev/famo_dpo/best_checkpoint')
     wandb_name: Optional[str] = field(default='evalnew_assistant_pretrained_harmless_helpful', metadata={"help": "Name for this experiment"})
     reward_names:Optional[str] = field(default='harmless,helpful') 
+    num_samples: Optional[int] = field(default=0, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     exp_type: Optional[str] = field(default='assistant', metadata={"help": "exp type, 'summary' or 'assistant' "})
 
     beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence, paper used w=1.5 for LLaMA-7B"})
@@ -254,9 +255,9 @@ generation_kwargs = {
 ### for evaluation
 print('evaluation........')
 tokenizer.padding_side = "left"
-
+size = script_args.num_samples if script_args.num_samples > 0 else None
 if exp_type == 'assistant':
-    valid_dataset = build_dataset_eval(hhrlhf_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test') 
+    valid_dataset = build_dataset_eval(hhrlhf_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test', size=size) 
     instructions = Instructions()
 else:
     valid_dataset = build_dataset_summary_eval(summary_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test') 
@@ -292,8 +293,8 @@ with torch.no_grad():
                 batch['attention_mask'],
                 instructions,
                 preference_weights=preference_weights,
-                beta=script_args.beta,  # 基于论文的最佳参数 
-                topk=script_args.topk,  # 基于论文的最佳参数
+                beta=script_args.beta,  
+                topk=script_args.topk,  
                 **generation_kwargs
             )
         else:

@@ -84,33 +84,20 @@ def reward_guided_generate(
             if "temperature" in generation_kwargs and generation_kwargs["temperature"] > 0:
                 logits = logits / generation_kwargs["temperature"]
             
-            # 获取top-k candidates
             top_logits, top_indices = torch.topk(logits, topk, dim=-1)
             
-            # 应用top-p过滤
             if "top_p" in generation_kwargs and generation_kwargs["top_p"] < 1.0:
                 top_p = generation_kwargs["top_p"]
-                
-                # 分别处理每个batch
-                filtered_indices = []
-                filtered_logits = []
-                
-                for b in range(batch_size):
-                    batch_probs = torch.softmax(top_logits[b], dim=-1)
-                    cumulative_probs = torch.cumsum(batch_probs, dim=-1)
-                    mask = cumulative_probs < top_p
-                    mask[0] = True  # 至少保留最高概率的token
-                    
-                    batch_top_indices = top_indices[b][mask]
-                    batch_top_logits = top_logits[b][mask]
-                    
-                    filtered_indices.append(batch_top_indices)
-                    filtered_logits.append(batch_top_logits)
-            else:
-                # 如果没有top-p, 直接使用原始结果
-                filtered_indices = [top_indices[b] for b in range(batch_size)]
-                filtered_logits = [top_logits[b] for b in range(batch_size)]
+                cumulative_probs = torch.softmax(top_logits, dim=-1)
+                cumulative_probs = torch.cumsum(cumulative_probs, dim=-1)
+                mask = cumulative_probs < top_p
+                mask = torch.cat([torch.ones_like(mask[:, :1], dtype=torch.bool), mask[:, :-1]], dim=1)
+                top_indices = top_indices.masked_select(mask).view(batch_size, -1)
+                top_logits = top_logits.masked_select(mask).view(batch_size, -1)
+                topk = min(topk, top_indices.size(1))
             
+            top_probs = torch.softmax(top_logits, dim=-1)
+
             next_tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
             
             for b in range(batch_size):
@@ -337,8 +324,8 @@ def main():
         "max_new_tokens": 128,
         "min_length": -1,
         "top_k": 0.0,
-        "top_p": 1.0, 
-        "do_sample": False,
+        "top_p": 0.9, 
+        "do_sample": True,
         "temperature": 0.7,
     }
     

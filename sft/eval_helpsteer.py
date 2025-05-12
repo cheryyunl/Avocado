@@ -208,7 +208,7 @@ def main():
             
             # 生成回复
             response_tensors = accelerator.unwrap_model(model).generate(
-                batch['input_ids'], 
+                input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'], 
                 **generation_kwargs
             )

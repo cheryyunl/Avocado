@@ -6,5 +6,5 @@ from .safe_rlhf import (
 from .shp import SHPRDP
 from .stack_exchange_paired import StackExchangePairedRDP
 from .summarize_from_feedback import SummarizeFromFeedbackRDP
-from .helpsteer import HelpSteerRDP
+from .helpsteer import HelpSteerRDP, MTHelpSteerRDP, MixedHelpSteerRDP
 from .ultrafeedback import UltraFeedbackRDP

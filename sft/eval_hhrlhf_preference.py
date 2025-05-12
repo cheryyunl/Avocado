@@ -170,7 +170,6 @@ class ScriptArguments:
     dpo_model_path: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/dpo/output/dev/famo_dpo/best_checkpoint')
     wandb_name: Optional[str] = field(default='evalnew_assistant_pretrained_harmless_helpful', metadata={"help": "Name for this experiment"})
     reward_names:Optional[str] = field(default='harmless,helpful') 
-    num_samples: Optional[int] = field(default=0, metadata={"help": "Total number of samples to evaluate (0 for all)"})
     exp_type: Optional[str] = field(default='assistant', metadata={"help": "exp type, 'summary' or 'assistant' "})
 
     beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence, paper used w=1.5 for LLaMA-7B"})
@@ -247,26 +246,17 @@ generation_kwargs = {
     "max_new_tokens": 128 if exp_type == 'assistant' else 48, 
     "min_length": -1,
     "top_k": 0.0,
-    "top_p": 1.0, 
-    "do_sample": False
+    "top_p": 0.9, 
+    "do_sample": True,
 }
 
 
 ### for evaluation
 print('evaluation........')
 tokenizer.padding_side = "left"
-size = script_args.num_samples if script_args.num_samples > 0 else None
-valid_dataset = build_dataset_eval(
-    hhrlhf_dataset_path, 
-    tokenizer, 
-    reward_models.rm_tokenizers[0],
-    reward_models.rm_tokenizers[1],
-    split='test',
-    size=size
-)
-size = script_args.num_samples if script_args.num_samples > 0 else None
+
 if exp_type == 'assistant':
-    valid_dataset = build_dataset_eval(hhrlhf_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test', size=size) 
+    valid_dataset = build_dataset_eval(hhrlhf_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test', size=100) 
     instructions = Instructions()
 else:
     valid_dataset = build_dataset_summary_eval(summary_dataset_path, tokenizer, reward_models.rm_tokenizers[0], reward_models.rm_tokenizers[1], split='test') 

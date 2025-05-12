@@ -28,6 +28,10 @@ class HelpSteerRewardModel:
     def __init__(self, model_path="RLHFlow/RewardModel-Mistral-7B-for-DPA-v1", device="cuda"):
         self.device = device
         print(f"Loading HelpSteer reward model from {model_path}...")
+        from transformers import AutoConfig
+        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        if hasattr(config, 'sliding_window') and config.sliding_window is None:
+            config.sliding_window = 4096
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path, 
             torch_dtype=torch.bfloat16, 

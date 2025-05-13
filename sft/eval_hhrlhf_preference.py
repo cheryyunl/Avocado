@@ -19,7 +19,6 @@ from utils import load_main_tokenizer, check_lora_in_model_path, Instructions, I
                     build_dataset_eval, build_dataset_summary_eval, get_clean_data
 tqdm.pandas()
 
-# 新增函数：reward引导生成
 def reward_guided_generate(
     model, 
     reward_models, 
@@ -34,6 +33,9 @@ def reward_guided_generate(
     """
     使用多个reward models实时引导生成的函数
     """
+    print(f"DEBUG: reward_guided_generate called with beta={beta}, topk={topk}")
+    print(f"DEBUG: preference_weights={preference_weights}")
+    
     batch_size = input_ids.size(0)
     device = input_ids.device
     
@@ -52,8 +54,9 @@ def reward_guided_generate(
     max_length = curr_input_ids.size(1) + generation_kwargs.get("max_new_tokens", 128)
 
     cached_output = None
+    step = 0
     
-    for _ in range(max_length - curr_input_ids.size(1)):
+    for step in range(max_length - curr_input_ids.size(1)):
         if not unfinished.any():
             break
 
@@ -79,34 +82,61 @@ def reward_guided_generate(
             if "temperature" in generation_kwargs and generation_kwargs["temperature"] > 0:
                 logits = logits / generation_kwargs["temperature"]
             
+            # 获取 top-k 候选
             top_logits, top_indices = torch.topk(logits, topk, dim=-1)
             
+            # 应用 top-p 过滤 - 修复版本！
             if "top_p" in generation_kwargs and generation_kwargs["top_p"] < 1.0:
                 top_p = generation_kwargs["top_p"]
-                cumulative_probs = torch.softmax(top_logits, dim=-1)
-                cumulative_probs = torch.cumsum(cumulative_probs, dim=-1)
-                mask = cumulative_probs < top_p
-                mask = torch.cat([torch.ones_like(mask[:, :1], dtype=torch.bool), mask[:, :-1]], dim=1)
-                top_indices = top_indices.masked_select(mask).view(batch_size, -1)
-                top_logits = top_logits.masked_select(mask).view(batch_size, -1)
-                topk = min(topk, top_indices.size(1))
+                
+                # 为每个batch分别处理（避免之前的错误）
+                filtered_indices = []
+                filtered_logits = []
+                
+                for b in range(batch_size):
+                    # 计算该batch的概率分布
+                    batch_probs = torch.softmax(top_logits[b], dim=-1)
+                    cumulative_probs = torch.cumsum(batch_probs, dim=-1)
+                    
+                    # 保留累积概率小于top_p的tokens
+                    mask = cumulative_probs <= top_p
+                    # 确保至少保留一个token（第一个，概率最高的）
+                    mask[0] = True
+                    
+                    batch_filtered_indices = top_indices[b][mask]
+                    batch_filtered_logits = top_logits[b][mask]
+                    
+                    filtered_indices.append(batch_filtered_indices)
+                    filtered_logits.append(batch_filtered_logits)
+            else:
+                # 如果没有 top-p 过滤，直接使用 top-k 结果
+                filtered_indices = [top_indices[b] for b in range(batch_size)]
+                filtered_logits = [top_logits[b] for b in range(batch_size)]
             
-            top_probs = torch.softmax(top_logits, dim=-1)
-
             next_tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
             
             for b in range(batch_size):
                 if not unfinished[b]:
+                    next_tokens[b] = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else 0
                     continue
 
+                # 使用过滤后的候选 - 这是关键修复！
+                current_candidates = filtered_indices[b]
+                current_logits = filtered_logits[b]
+                
+                # 检查候选是否为空
+                if len(current_candidates) == 0:
+                    next_tokens[b] = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else 0
+                    continue
+                
+                # 为每个候选token创建完整序列
                 candidate_input_ids = []
-                for t in range(topk):
-                    if t < top_indices.size(1):  
-                        candidate = torch.cat([
-                            curr_input_ids[b:b+1],
-                            top_indices[b:b+1, t:t+1]
-                        ], dim=1)
-                        candidate_input_ids.append(candidate)
+                for t in range(len(current_candidates)):  # 使用正确的长度
+                    candidate = torch.cat([
+                        curr_input_ids[b:b+1],
+                        current_candidates[t:t+1].unsqueeze(0)  # 使用过滤后的候选
+                    ], dim=1)
+                    candidate_input_ids.append(candidate)
                 
                 if not candidate_input_ids:  
                     continue
@@ -125,6 +155,7 @@ def reward_guided_generate(
                 else:
                     all_rewards = reward_models.get_reward_model_scores(queries_responses)
 
+                # 计算加权 rewards
                 weighted_rewards = torch.zeros(len(candidate_input_ids), device=device)
                 for i in range(reward_models.num_rewards):
                     if isinstance(all_rewards[i], list) or isinstance(all_rewards[i], tuple):
@@ -133,19 +164,47 @@ def reward_guided_generate(
                         reward_tensor = all_rewards[i]
                     if reward_tensor.dim() > 1:
                         reward_tensor = reward_tensor.squeeze()
+                    
+                    # 确保长度匹配
+                    if len(reward_tensor) != len(candidate_input_ids):
+                        print(f"Warning: Reward tensor length {len(reward_tensor)} doesn't match {len(candidate_input_ids)}")
+                        # 截断或扩展到匹配长度
+                        if len(reward_tensor) > len(candidate_input_ids):
+                            reward_tensor = reward_tensor[:len(candidate_input_ids)]
+                        else:
+                            # 如果太短，用最后一个值填充
+                            last_value = reward_tensor[-1] if len(reward_tensor) > 0 else 0.0
+                            padding = torch.full((len(candidate_input_ids) - len(reward_tensor),), 
+                                               last_value, device=device)
+                            reward_tensor = torch.cat([reward_tensor, padding])
+                    
                     weighted_rewards += preference_weights[i] * reward_tensor
 
-                combined_scores = top_logits[b, :len(candidate_input_ids)] + beta * weighted_rewards
+                # 结合语言模型分数和奖励分数 - 使用正确的logits！
+                combined_scores = current_logits[:len(candidate_input_ids)] + beta * weighted_rewards
 
+                # 选择下一个token
                 if generation_kwargs.get("do_sample", True):
                     sampling_probs = F.softmax(combined_scores / generation_kwargs.get("temperature", 1.0), dim=0)
                     next_token_idx = torch.multinomial(sampling_probs, num_samples=1)[0]
                 else:
                     next_token_idx = torch.argmax(combined_scores)
 
-                if next_token_idx < top_indices.size(1):
-                    next_tokens[b] = top_indices[b, next_token_idx]
+                # 使用正确的候选索引 - 这也是关键修复！
+                if next_token_idx < len(current_candidates):
+                    next_tokens[b] = current_candidates[next_token_idx]
+                else:
+                    # fallback
+                    next_tokens[b] = current_candidates[0]
+                
+                if step == 0 and b == 0:
+                    print(f"DEBUG: Step {step}, batch {b}")
+                    print(f"  Current candidates: {current_candidates}")
+                    print(f"  Weighted rewards: {weighted_rewards}")
+                    print(f"  Combined scores: {combined_scores}")
+                    print(f"  Selected token: {next_tokens[b].item()}")
 
+            # 更新序列
             next_tokens = next_tokens.unsqueeze(1)
             curr_input_ids = torch.cat([curr_input_ids, next_tokens], dim=1)
             curr_attention_mask = torch.cat([

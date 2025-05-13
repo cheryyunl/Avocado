@@ -34,7 +34,7 @@ def reward_guided_generate(
     attention_mask, 
     tokenizer,
     preference_weights=None,
-    beta=0.5,   # reward影响系数
+    beta=1.5,   # reward影响系数
     topk=10,    # 考虑的候选token数量
     **generation_kwargs
 ):
@@ -341,7 +341,7 @@ def main():
         "top_k": 0.0,
         "top_p": 0.9, 
         "do_sample": True,
-        "temperature": 0.7,
+        "temperature": 0.3,
     }
     
     # 加载评估数据集

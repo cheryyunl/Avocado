@@ -314,7 +314,8 @@ generation_kwargs = {
     "min_length": -1,
     "top_k": 0.0,
     "top_p": 0.95, 
-    "do_sample": False,
+    "do_sample": True,
+    "temperature": 0.3,
 }
 
 ### 准备评估数据集（只需要准备一次）

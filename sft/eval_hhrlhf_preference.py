@@ -236,10 +236,10 @@ class ScriptArguments:
     
     # 生成参数
     num_samples: Optional[int] = field(default=0, metadata={"help": "Number of samples to evaluate (0 for all)"})
-    generation_top_k: Optional[float] = field(default=0.0, metadata={"help": "top_k for generation"})
+    generation_top_k: Optional[float] = field(default=10, metadata={"help": "top_k for generation"})
     generation_top_p: Optional[float] = field(default=0.9, metadata={"help": "top_p for generation"})
     generation_temperature: Optional[float] = field(default=1.0, metadata={"help": "temperature for generation"})
-    generation_do_sample: Optional[bool] = field(default=True, metadata={"help": "whether to use sampling"})
+    generation_do_sample: Optional[bool] = field(default=False, metadata={"help": "whether to use sampling"})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]

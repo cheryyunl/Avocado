@@ -143,6 +143,6 @@ if Accelerator().is_local_main_process and script_args.peft_config:
 
 trainer.train()
 
-save_name = "best_checkpoint" if script_args.training_args.load_best_model_at_end else "final_checkpoint"
+save_name = "famo_best_checkpoint" if script_args.training_args.load_best_model_at_end else "final_checkpoint"
 trainer.model.save_pretrained(os.path.join(script_args.training_args.output_dir, save_name))
 trainer.tokenizer.save_pretrained(os.path.join(script_args.training_args.output_dir, save_name))

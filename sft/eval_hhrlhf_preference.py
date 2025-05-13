@@ -33,8 +33,8 @@ def reward_guided_generate(
     """
     使用多个reward models实时引导生成的函数
     """
-    print(f"DEBUG: reward_guided_generate called with beta={beta}, topk={topk}")
-    print(f"DEBUG: preference_weights={preference_weights}")
+    print(f"Reward_guided_generate called with beta={beta}, topk={topk}")
+    print(f"Preference_weights={preference_weights}")
     
     batch_size = input_ids.size(0)
     device = input_ids.device

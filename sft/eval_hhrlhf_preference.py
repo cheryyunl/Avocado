@@ -237,6 +237,14 @@ class ScriptArguments:
     preference_weights: Optional[str] = field(default="0.5,0.5", metadata={"help": "comma-separated weights for reward models"})
     use_reward_guidance: Optional[bool] = field(default=True, metadata={"help": "whether to use reward-guided generation"})
 
+# 定义多组preference weights来评估
+PREFERENCE_WEIGHTS_LIST = [
+    [0.9, 0.1],  # 更倾向于harmless
+    [0.7, 0.3], 
+    [0.3, 0.7],
+    [0.1, 0.9]   # 更倾向于helpful
+]
+
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
 exp_type = script_args.exp_type
@@ -253,9 +261,7 @@ gpu_id = process_id
 print('process: {}, model gpu id: {}'.format(process_id, gpu_id))
 
 reward_names = [x.strip() for x in script_args.reward_names.split(',')]
-preference_weights = [float(x.strip()) for x in script_args.preference_weights.split(',')]
 print('Reward models: ', reward_names)
-print('Preference weights: ', preference_weights)
 
 reward_path_tokenizer_dict = {
     'harmless': ['Ray2333/gpt2-large-harmless-reward_model'],
@@ -276,9 +282,10 @@ for name in reward_names:
 reward_models = RewardModels(reward_model_path_list, rm_tokenizer_path_list, gpu_id) #, reward_stats_path) 
 os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
 
-
 set_seed(8888)
 tokenizer = load_main_tokenizer(tokenizer_name)
+
+# 加载模型（只需要加载一次）
 if os.path.exists(os.path.join(model_path, "adapter_config.json")):
     print("Loading model as PEFT adapter...")
     base_model = AutoModelForCausalLM.from_pretrained(
@@ -310,9 +317,8 @@ generation_kwargs = {
     "do_sample": False,
 }
 
-
-### for evaluation
-print('evaluation........')
+### 准备评估数据集（只需要准备一次）
+print('Preparing evaluation dataset...')
 tokenizer.padding_side = "left"
 
 if exp_type == 'assistant':
@@ -335,84 +341,140 @@ valid_data_loader = DataLoader(valid_dataset, batch_size=valid_batch_size, drop_
 accelerator = Accelerator()
 model, valid_data_loader = accelerator.prepare(model, valid_data_loader)
 
-full_response_tensors = []
-full_prompts = []
+# 存储所有preference weights的结果
+all_results = {}
 
-pbar = tqdm(total=len(valid_dataset) // valid_batch_size // accelerator.num_processes)
-with torch.no_grad():
-    for i, batch in enumerate(valid_data_loader):
-        # 根据参数决定是否使用reward引导生成
+# 循环评估每组preference weights
+for pref_idx, preference_weights in enumerate(PREFERENCE_WEIGHTS_LIST):
+    print(f"\n{'='*50}")
+    print(f"Evaluating preference weights: {preference_weights}")
+    print(f"Run {pref_idx + 1} of {len(PREFERENCE_WEIGHTS_LIST)}")
+    print(f"{'='*50}\n")
+    
+    full_response_tensors = []
+    full_prompts = []
+
+    pbar = tqdm(total=len(valid_dataset) // valid_batch_size // accelerator.num_processes, 
+                desc=f"Pref: {preference_weights}")
+    
+    with torch.no_grad():
+        for i, batch in enumerate(valid_data_loader):
+            # 根据参数决定是否使用reward引导生成
+            if script_args.use_reward_guidance:
+                # 使用reward引导生成函数
+                response_tensors = reward_guided_generate(
+                    accelerator.unwrap_model(model),
+                    reward_models,
+                    batch['input_ids'], 
+                    batch['attention_mask'],
+                    instructions,
+                    preference_weights=preference_weights,
+                    beta=script_args.beta,  # 基于论文的最佳参数 
+                    topk=script_args.topk,  # 基于论文的最佳参数
+                    **generation_kwargs
+                )
+            else:
+                # 使用原始的generate函数
+                response_tensors = accelerator.unwrap_model(model).generate(
+                    batch['input_ids'], 
+                    attention_mask=batch['attention_mask'], 
+                    **generation_kwargs
+                )
+                
+            full_response_tensors.extend(response_tensors)
+            full_prompts.extend(batch['input_ids'])
+            pbar.update(1)
+
+    full_prompts = tokenizer.batch_decode(full_prompts)
+    full_responses = tokenizer.batch_decode(full_response_tensors)
+    full_responses = get_clean_data(full_responses, full_prompts)
+    
+    # Compute score
+    queries_responses = [
+        (instructions.get_input(text),  instructions.get_response(text))
+        for text in full_responses
+    ]
+
+    if hasattr(instructions, 'get_post'):
+        rewards_list = reward_models.get_reward_model_scores(queries_responses, instructions.get_post)
+    else:
+        rewards_list = reward_models.get_reward_model_scores(queries_responses)
+
+    ### merge data
+    all_rewards = []
+    for i in range(reward_models.num_rewards):
+        all_rewards.append(accelerator.gather_for_metrics(rewards_list[i]))
+    all_full_prompts = accelerator.gather_for_metrics(full_prompts)
+    all_full_responses = accelerator.gather_for_metrics(full_responses)
+
+    if process_id == 0:
+        evaluation_result = {
+            'prompt': all_full_prompts,
+            'response': all_full_responses,
+        }
+        for i in range(reward_models.num_rewards):
+            evaluation_result['obtained_score{}'.format(i+1)] = all_rewards[i]
+            score_mean = np.mean(evaluation_result['obtained_score{}'.format(i+1)])
+            print(f'Reward {i+1} ({reward_names[i]}) average score: {score_mean:.4f}')
+
+        # 创建包含preference weights信息的文件名
+        weight_str = f"{preference_weights[0]}-{preference_weights[1]}"
         if script_args.use_reward_guidance:
-            print("Using reward-guided generation...")
-            # 使用reward引导生成函数
-            response_tensors = reward_guided_generate(
-                accelerator.unwrap_model(model),
-                reward_models,
-                batch['input_ids'], 
-                batch['attention_mask'],
-                instructions,
-                preference_weights=preference_weights,
-                beta=script_args.beta,  # 基于论文的最佳参数 
-                topk=script_args.topk,  # 基于论文的最佳参数
-                **generation_kwargs
+            filename = os.path.join(
+                script_args.save_directory, 
+                script_args.wandb_name,
+                f'eval_data_reward_guided_beta{script_args.beta}_topk{script_args.topk}_weights{weight_str}.csv'
             )
         else:
-            # 使用原始的generate函数
-            response_tensors = accelerator.unwrap_model(model).generate(
-                batch['input_ids'], 
-                attention_mask=batch['attention_mask'], 
-                **generation_kwargs
+            filename = os.path.join(
+                script_args.save_directory, 
+                script_args.wandb_name,
+                f'eval_data_weights{weight_str}.csv'
             )
             
-        full_response_tensors.extend(response_tensors)
-        full_prompts.extend(batch['input_ids'])
-        pbar.update(1)
-
-full_prompts = tokenizer.batch_decode(full_prompts)
-full_responses = tokenizer.batch_decode(full_response_tensors)
-full_responses = get_clean_data(full_responses, full_prompts)
-# Compute score
-queries_responses = [
-    (instructions.get_input(text),  instructions.get_response(text))
-    for text in full_responses
-]
-
-if hasattr(instructions, 'get_post'):
-    rewards_list = reward_models.get_reward_model_scores(queries_responses, instructions.get_post)
-else:
-    rewards_list = reward_models.get_reward_model_scores(queries_responses)
-
-### merge data
-### error here may because of old version of transformers/accelerate/peft
-all_rewards = []
-for i in range(reward_models.num_rewards):
-    all_rewards.append(accelerator.gather_for_metrics(rewards_list[i]))
-all_full_prompts = accelerator.gather_for_metrics(full_prompts)
-all_full_responses = accelerator.gather_for_metrics(full_responses)
-
-
-if process_id == 0:
-    evaluation_result = {
-        'prompt': all_full_prompts,
-        'response': all_full_responses,
-    }
-    for i in range(reward_models.num_rewards):
-        evaluation_result['obtained_score{}'.format(i+1)] = all_rewards[i]
-        print('total average obtained score {}: {}'.format(i+1, np.mean(evaluation_result['obtained_score{}'.format(i+1)])))
-
-    if script_args.use_reward_guidance:
-        filename = os.path.join(
-            script_args.save_directory, 
-            script_args.wandb_name,
-            f'eval_data_reward_guided_beta{script_args.beta}_topk{script_args.topk}.csv'
-        )
-    else:
-        filename = os.path.join(
-            script_args.save_directory, 
-            script_args.wandb_name,
-            'eval_data.csv'
-        )
+        dataframe = pd.DataFrame(evaluation_result)
+        dataframe.to_csv(filename)
+        print(f"Results saved to {filename}")
         
-    dataframe = pd.DataFrame(evaluation_result)
-    dataframe.to_csv(filename)
-    print(f"Results saved to {filename}")
+        # 收集结果供最终汇总
+        weight_key = f"{preference_weights[0]}-{preference_weights[1]}"
+        all_results[weight_key] = {
+            'weights': preference_weights,
+            'scores': [np.mean(evaluation_result[f'obtained_score{i+1}']) for i in range(reward_models.num_rewards)],
+            'filename': filename
+        }
+
+# 在所有评估完成后汇总结果
+if process_id == 0:
+    print(f"\n{'='*50}")
+    print("FINAL SUMMARY")
+    print(f"{'='*50}")
+    print(f"{'Weights':<12} {'Harmless Score':<15} {'Helpful Score':<15} {'File'}")
+    print("-" * 70)
+    
+    for weight_key, result in all_results.items():
+        weights = result['weights']
+        scores = result['scores']
+        filename = os.path.basename(result['filename'])
+        print(f"{weights[0]}, {weights[1]:<10} {scores[0]:<15.4f} {scores[1]:<15.4f} {filename}")
+    
+    # 保存汇总结果
+    summary_data = []
+    for weight_key, result in all_results.items():
+        summary_data.append({
+            'preference_weights': str(result['weights']),
+            'harmless_weight': result['weights'][0],
+            'helpful_weight': result['weights'][1],
+            'harmless_score': result['scores'][0],
+            'helpful_score': result['scores'][1],
+            'filename': result['filename']
+        })
+    
+    summary_df = pd.DataFrame(summary_data)
+    summary_filename = os.path.join(
+        script_args.save_directory, 
+        script_args.wandb_name,
+        f'preference_weights_summary_beta{script_args.beta}.csv'
+    )
+    summary_df.to_csv(summary_filename, index=False)
+    print(f"\nSummary saved to {summary_filename}")

@@ -26,7 +26,7 @@ def reward_guided_generate(
     attention_mask, 
     instructions,
     preference_weights=None,
-    beta=1.5,   # reward影响系数
+    beta=2,   # reward影响系数
     topk=10,    # 考虑的候选token数量，基于论文使用k=10
     **generation_kwargs
 ):
@@ -232,7 +232,7 @@ class ScriptArguments:
     exp_type: Optional[str] = field(default='assistant', metadata={"help": "exp type, 'summary' or 'assistant' "})
     num_samples: Optional[int] = field(default=100, metadata={"help": "number of samples to evaluate"})
 
-    beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence, paper used w=1.5 for LLaMA-7B"})
+    beta: Optional[float] = field(default=2, metadata={"help": "beta parameter for reward influence, paper used w=1.5 for LLaMA-7B"})
     topk: Optional[int] = field(default=10, metadata={"help": "topk parameter for candidate tokens, paper used k=10"})
     preference_weights: Optional[str] = field(default="0.5,0.5", metadata={"help": "comma-separated weights for reward models"})
     use_reward_guidance: Optional[bool] = field(default=True, metadata={"help": "whether to use reward-guided generation"})
@@ -306,8 +306,8 @@ generation_kwargs = {
     "max_new_tokens": 128 if exp_type == 'assistant' else 48, 
     "min_length": -1,
     "top_k": 0.0,
-    "top_p": 0.9, 
-    "do_sample": True,
+    "top_p": 0.95, 
+    "do_sample": False,
 }
 
 

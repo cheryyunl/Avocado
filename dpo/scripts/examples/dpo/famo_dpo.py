@@ -40,7 +40,7 @@ class ScriptArguments:
 
     training_args: TrainingArguments = field(
         default_factory=lambda: TrainingArguments(
-            output_dir="./output/dev/famo_dpo_helpsteer",
+            output_dir="./output/dev/famo_dpo_helpsteer_abl",
             overwrite_output_dir=True,
             seed=42,
 

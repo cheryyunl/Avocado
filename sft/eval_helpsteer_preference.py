@@ -15,6 +15,18 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from utils import load_main_tokenizer, check_lora_in_model_path
 
+# 设置临时目录到空间充足的分区
+import tempfile
+os.environ['TMPDIR'] = '/scratch1/tmp'
+os.environ['TEMP'] = '/scratch1/tmp'
+os.environ['TMP'] = '/scratch1/tmp'
+os.environ['PYTORCH_TRANSFORMERS_CACHE'] = '/scratch1/huggingface_cache'
+os.environ['HF_HOME'] = '/scratch1/huggingface_cache'
+
+# 创建必要目录
+os.makedirs('/scratch1/tmp', exist_ok=True)
+os.makedirs('/scratch1/huggingface_cache', exist_ok=True)
+
 # HelpSteer属性名称
 HELPSTEER_ATTRIBUTES = [
     'helpsteer-helpfulness',
@@ -26,6 +38,14 @@ HELPSTEER_ATTRIBUTES = [
 
 GUIDANCE_INDICES = [0, 1, 2, 4]
 GUIDANCE_ATTRIBUTES = [HELPSTEER_ATTRIBUTES[i] for i in GUIDANCE_INDICES]
+
+# 定义多组preference weights来评估
+PREFERENCE_WEIGHTS_LIST = [
+    [0.9, 0.1, 0, 0],    # 主要关注helpfulness
+    [0.1, 0.9, 0, 0],    # 主要关注correctness
+    [0, 0, 0.9, 0.1],    # 主要关注coherence, 少量complexity
+    [0, 0, 0.1, 0.9]   # 主要关注complexity, 少量coherence
+]
 
 def reward_guided_generate(
     model, 
@@ -297,19 +317,18 @@ def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', 
 
 @dataclass
 class ScriptArguments:
-    save_directory: Optional[str] = field(default='./logs_trl')
-    base_model_name: Optional[str] = field(default='./huggingface_models/Llama-2-7b-hf')
+    save_directory: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/sft/logs_trl/sft_hh_famo_helpsteer_mixed_model')  # 改为/scratch1
+    base_model_name: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/dpo/model/famo-helpsteer-5000')
     dpo_model_path: Optional[str] = field(default=None)
-    wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
+    wandb_name: Optional[str] = field(default='eval_helpsteer_multiple_weights', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='nvidia/HelpSteer', metadata={"help": "Dataset to evaluate on"})
     reward_model_path: Optional[str] = field(default='RLHFlow/RewardModel-Mistral-7B-for-DPA-v1')
-    num_samples: Optional[int] = field(default=0, metadata={"help": "Total number of samples to evaluate (0 for all)"})
+    num_samples: Optional[int] = field(default=0, metadata={"help": "Total number of samples to evaluate (0 for all)"})  # 改为0
     split: Optional[str] = field(default='validation', metadata={"help": "Dataset split to use"})
     
     # 新增参数，用于reward引导生成
     beta: Optional[float] = field(default=1.5, metadata={"help": "beta parameter for reward influence"})
     topk: Optional[int] = field(default=10, metadata={"help": "topk parameter for candidate tokens"})
-    preference_weights: Optional[str] = field(default="0.7,0.1,0.1,0.1", metadata={"help": "comma-separated weights for reward dimensions"})
     use_reward_guidance: Optional[bool] = field(default=True, metadata={"help": "whether to use reward-guided generation"})
 
 def main():
@@ -318,12 +337,6 @@ def main():
     base_model_name = script_args.base_model_name
     tokenizer_name = script_args.base_model_name
     dpo_model_path = script_args.dpo_model_path
-    
-    # 解析preference_weights参数
-    preference_weights = [float(x.strip()) for x in script_args.preference_weights.split(',')]
-    if len(preference_weights) != len(GUIDANCE_INDICES):
-        print(f"Warning: preference_weights length ({len(preference_weights)}) doesn't match guidance attributes length ({len(GUIDANCE_INDICES)})")
-        print(f"Using dimensions: {GUIDANCE_ATTRIBUTES}")
 
     model_path = dpo_model_path if (dpo_model_path is not None and os.path.exists(dpo_model_path)) else base_model_name
     model_type = "DPO" if model_path == dpo_model_path else "SFT"
@@ -381,9 +394,8 @@ def main():
         "temperature": 0.3,
     }
     
-    # 加载评估数据集
+    # 加载评估数据集（只需要加载一次）
     print('Loading evaluation dataset...')
-    # 如果设置了num_samples，直接在加载时限制大小
     size = script_args.num_samples if script_args.num_samples > 0 else None
     valid_dataset = build_helpsteer_eval_dataset(
         script_args.dataset_path, 
@@ -407,119 +419,198 @@ def main():
     # 使用accelerator准备模型和数据加载器
     model, valid_data_loader = accelerator.prepare(model, valid_data_loader)
     
-    # 评估循环
-    full_response_tensors = []
-    full_prompts = []
-    original_prompts = []
+    # 存储所有preference weights的结果
+    all_results = {}
     
-    total_steps = len(valid_dataset) // valid_batch_size // num_processes + 1
-    pbar = tqdm(total=total_steps, desc=f"GPU {gpu_id} generating")
-    
-    # 生成回复
-    with torch.no_grad():
-        for i, batch in enumerate(valid_data_loader):
-            # 保存原始prompt
-            if 'original_prompt' in batch:
-                original_prompts.extend(batch['original_prompt'])
-            
-            # 根据参数决定是否使用reward引导生成
-            if script_args.use_reward_guidance:
-                if i == 0:  # 只在第一个批次打印
-                    print(f"GPU {gpu_id} using reward-guided generation (beta={script_args.beta}, topk={script_args.topk})...")
+    # 循环评估每组preference weights
+    for pref_idx, preference_weights in enumerate(PREFERENCE_WEIGHTS_LIST):
+        print(f"\n{'='*50}")
+        print(f"Evaluating preference weights: {preference_weights}")
+        print(f"Run {pref_idx + 1} of {len(PREFERENCE_WEIGHTS_LIST)}")
+        print(f"{'='*50}\n")
+        
+        # 评估循环
+        full_response_tensors = []
+        full_prompts = []
+        original_prompts = []
+        
+        total_steps = len(valid_dataset) // valid_batch_size // num_processes + 1
+        pbar = tqdm(total=total_steps, desc=f"GPU {gpu_id} generating with weights {preference_weights}")
+        
+        # 生成回复
+        with torch.no_grad():
+            for i, batch in enumerate(valid_data_loader):
+                # 保存原始prompt
+                if 'original_prompt' in batch:
+                    original_prompts.extend(batch['original_prompt'])
                 
-                # 使用reward引导生成函数
-                response_tensors = reward_guided_generate(
-                    accelerator.unwrap_model(model),
-                    reward_model,
-                    batch['input_ids'], 
-                    batch['attention_mask'],
-                    tokenizer,
-                    preference_weights=preference_weights,
-                    beta=script_args.beta,
-                    topk=script_args.topk,
-                    **generation_kwargs
+                # 根据参数决定是否使用reward引导生成
+                if script_args.use_reward_guidance:
+                    if i == 0:  # 只在第一个批次打印
+                        print(f"GPU {gpu_id} using reward-guided generation (beta={script_args.beta}, topk={script_args.topk})...")
+                    
+                    # 使用reward引导生成函数
+                    response_tensors = reward_guided_generate(
+                        accelerator.unwrap_model(model),
+                        reward_model,
+                        batch['input_ids'], 
+                        batch['attention_mask'],
+                        tokenizer,
+                        preference_weights=preference_weights,
+                        beta=script_args.beta,
+                        topk=script_args.topk,
+                        **generation_kwargs
+                    )
+                else:
+                    # 使用原始的generate函数
+                    response_tensors = accelerator.unwrap_model(model).generate(
+                        batch['input_ids'], 
+                        attention_mask=batch['attention_mask'], 
+                        **generation_kwargs
+                    )
+                
+                full_response_tensors.extend(response_tensors)
+                full_prompts.extend(batch['input_ids'])
+                pbar.update(1)
+        
+        # 解码生成的文本
+        input_texts = tokenizer.batch_decode(full_prompts, skip_special_tokens=True)
+        full_responses = tokenizer.batch_decode(full_response_tensors, skip_special_tokens=True)
+        
+        # 提取助手回复部分
+        clean_responses = []
+        for full_text, prompt in zip(full_responses, input_texts):
+            if full_text.startswith(prompt):
+                response = full_text[len(prompt):]
+            else:
+                if "Assistant:" in full_text:
+                    response = full_text.split("Assistant:", 1)[1]
+                else:
+                    response = full_text
+            
+            clean_responses.append(response.strip())
+        
+        # 准备评估数据
+        query_response_pairs = list(zip(original_prompts, clean_responses))
+        
+        # 获取每个属性的评分
+        print(f"GPU {gpu_id} evaluating responses...")
+        rewards_list = reward_model.get_reward_scores(query_response_pairs)
+        
+        # 使用accelerator收集所有进程的结果
+        all_rewards = []
+        for i in range(reward_model.num_rewards):
+            all_rewards.append(accelerator.gather_for_metrics(rewards_list[i]))
+        
+        all_full_prompts = accelerator.gather_for_metrics(original_prompts)
+        all_full_responses = accelerator.gather_for_metrics(clean_responses)
+        
+        # 只在主进程保存结果
+        if process_id == 0:
+            evaluation_result = {
+                'prompt': all_full_prompts,
+                'response': all_full_responses,
+            }
+            
+            # 添加每个属性的评分
+            for i, attr_name in enumerate(HELPSTEER_ATTRIBUTES):
+                evaluation_result[attr_name] = all_rewards[i]
+                print(f'Average {attr_name} score: {np.mean(all_rewards[i]):.4f}')
+            
+            # 计算整体平均分
+            all_scores_array = np.array([all_rewards[i] for i in range(len(HELPSTEER_ATTRIBUTES))])
+            overall_scores = np.mean(all_scores_array, axis=0)
+            evaluation_result['overall_score'] = overall_scores
+            print(f'Overall average score: {np.mean(overall_scores):.4f}')
+            
+            # 创建包含preference weights信息的文件名
+            weight_str = f"{preference_weights[0]}-{preference_weights[1]}-{preference_weights[2]}-{preference_weights[3]}"
+            if script_args.use_reward_guidance:
+                filename = os.path.join(
+                    script_args.save_directory, 
+                    script_args.wandb_name,
+                    f'helpsteer_eval_reward_guided_beta{script_args.beta}_topk{script_args.topk}_weights{weight_str}.csv'
                 )
             else:
-                # 使用原始的generate函数
-                response_tensors = accelerator.unwrap_model(model).generate(
-                    batch['input_ids'], 
-                    attention_mask=batch['attention_mask'], 
-                    **generation_kwargs
+                filename = os.path.join(
+                    script_args.save_directory, 
+                    script_args.wandb_name,
+                    f'helpsteer_eval_weights{weight_str}.csv'
                 )
             
-            full_response_tensors.extend(response_tensors)
-            full_prompts.extend(batch['input_ids'])
-            pbar.update(1)
-    
-    # 解码生成的文本
-    input_texts = tokenizer.batch_decode(full_prompts, skip_special_tokens=True)
-    full_responses = tokenizer.batch_decode(full_response_tensors, skip_special_tokens=True)
-    
-    # 提取助手回复部分
-    clean_responses = []
-    for full_text, prompt in zip(full_responses, input_texts):
-        if full_text.startswith(prompt):
-            response = full_text[len(prompt):]
-        else:
-            if "Assistant:" in full_text:
-                response = full_text.split("Assistant:", 1)[1]
-            else:
-                response = full_text
+            # 保存结果到CSV
+            dataframe = pd.DataFrame(evaluation_result)
+            dataframe.to_csv(filename)
+            print(f"Results saved to {filename}")
+            
+            # 收集结果供最终汇总
+            weight_key = weight_str
+            all_results[weight_key] = {
+                'weights': preference_weights,
+                'scores': [np.mean(all_rewards[i]) for i in range(reward_model.num_rewards)],
+                'overall_score': np.mean(overall_scores),
+                'filename': filename
+            }
         
-        clean_responses.append(response.strip())
+        # 在每次循环后清理内存
+        del full_response_tensors, full_prompts, full_responses, clean_responses
+        del original_prompts, query_response_pairs, rewards_list
+        import gc
+        gc.collect()
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        
+        print(f"Memory cleaned after run {pref_idx + 1}")
     
-    # 准备评估数据
-    query_response_pairs = list(zip(original_prompts, clean_responses))
-    
-    # 获取每个属性的评分
-    print(f"GPU {gpu_id} evaluating responses...")
-    rewards_list = reward_model.get_reward_scores(query_response_pairs)
-    
-    # 使用accelerator收集所有进程的结果
-    all_rewards = []
-    for i in range(reward_model.num_rewards):
-        all_rewards.append(accelerator.gather_for_metrics(rewards_list[i]))
-    
-    all_full_prompts = accelerator.gather_for_metrics(original_prompts)
-    all_full_responses = accelerator.gather_for_metrics(clean_responses)
-    
-    # 只在主进程保存结果
+    # 在所有评估完成后汇总结果
     if process_id == 0:
-        evaluation_result = {
-            'prompt': all_full_prompts,
-            'response': all_full_responses,
-        }
+        print(f"\n{'='*50}")
+        print("FINAL SUMMARY")
+        print(f"{'='*50}")
+        print(f"{'Weights':<20} {'Helpfulness':<12} {'Correctness':<12} {'Coherence':<12} {'Complexity':<12} {'Overall':<10} {'File'}")
+        print("-" * 100)
         
-        # 添加每个属性的评分
-        for i, attr_name in enumerate(HELPSTEER_ATTRIBUTES):
-            evaluation_result[attr_name] = all_rewards[i]
-            print(f'Average {attr_name} score: {np.mean(all_rewards[i])}')
+        for weight_key, result in all_results.items():
+            weights = result['weights']
+            scores = result['scores']
+            overall = result['overall_score']
+            filename = os.path.basename(result['filename'])
+            
+            # 只显示guidance attributes对应的分数
+            guidance_scores = [scores[i] for i in GUIDANCE_INDICES]
+            print(f"{weights:<20} {guidance_scores[0]:<12.4f} {guidance_scores[1]:<12.4f} {guidance_scores[2]:<12.4f} {guidance_scores[3]:<12.4f} {overall:<10.4f} {filename}")
         
-        # 计算整体平均分
-        all_scores_array = np.array([all_rewards[i] for i in range(len(HELPSTEER_ATTRIBUTES))])
-        overall_scores = np.mean(all_scores_array, axis=0)
-        evaluation_result['overall_score'] = overall_scores
-        print(f'Overall average score: {np.mean(overall_scores)}')
+        # 保存汇总结果
+        summary_data = []
+        for weight_key, result in all_results.items():
+            weights = result['weights']
+            scores = result['scores']
+            guidance_scores = [scores[i] for i in GUIDANCE_INDICES]
+            
+            summary_data.append({
+                'preference_weights': str(weights),
+                'helpfulness_weight': weights[0],
+                'correctness_weight': weights[1], 
+                'coherence_weight': weights[2],
+                'complexity_weight': weights[3],
+                'helpfulness_score': guidance_scores[0],
+                'correctness_score': guidance_scores[1],
+                'coherence_score': guidance_scores[2],
+                'complexity_score': guidance_scores[3],
+                'overall_score': result['overall_score'],
+                'filename': result['filename']
+            })
         
-        # 保存结果到CSV
-        dataframe = pd.DataFrame(evaluation_result)
-        
-        # 修改文件名以反映使用的生成方法
-        if script_args.use_reward_guidance:
-            filename = os.path.join(
-                script_args.save_directory, 
-                script_args.wandb_name,
-                f'helpsteer_eval_results_reward_guided_beta{script_args.beta}_topk{script_args.topk}.csv'
-            )
-        else:
-            filename = os.path.join(
-                script_args.save_directory, 
-                script_args.wandb_name,
-                'helpsteer_eval_results.csv'
-            )
-        
-        dataframe.to_csv(filename)
-        print(f"Results saved to {filename}")
+        summary_df = pd.DataFrame(summary_data)
+        summary_filename = os.path.join(
+            script_args.save_directory, 
+            script_args.wandb_name,
+            f'helpsteer_preference_weights_summary_beta{script_args.beta}.csv'
+        )
+        summary_df.to_csv(summary_filename, index=False)
+        print(f"\nSummary saved to {summary_filename}")
 
 if __name__ == "__main__":
     main()

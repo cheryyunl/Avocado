@@ -29,9 +29,19 @@ def merge_gpu_results(base_dir, wandb_name):
         files = glob(os.path.join(gpu_dir, "helpsteer_eval_*.csv"))
         for file in files:
             if "weights" in file:
-                # 提取权重字符串
-                weight_str = file.split("weights")[-1].split(".")[0]
-                weight_patterns.add(weight_str)
+                # 提取权重字符串 - 修复提取方式
+                try:
+                    # 从文件名中提取权重部分
+                    weight_part = file.split("weights")[-1].split(".")[0]
+                    # 确保权重格式正确
+                    if weight_part.startswith("-"):
+                        weight_part = weight_part[1:]
+                    if weight_part.endswith("-"):
+                        weight_part = weight_part[:-1]
+                    weight_patterns.add(weight_part)
+                    print(f"Extracted weight pattern: {weight_part} from {file}")
+                except Exception as e:
+                    print(f"Error extracting weight pattern from {file}: {str(e)}")
     
     if not weight_patterns:
         print("No weight patterns found in the results")
@@ -46,7 +56,12 @@ def merge_gpu_results(base_dir, wandb_name):
         
         # 收集所有GPU的结果
         for gpu_dir in gpu_dirs:
-            files = glob(os.path.join(gpu_dir, f"*weights{weight_str}.csv"))
+            # 修改文件匹配模式
+            pattern = f"*weights{weight_str}.csv"
+            if not weight_str.startswith("-"):
+                pattern = f"*weights-{weight_str}.csv"
+            files = glob(os.path.join(gpu_dir, pattern))
+            
             for file in files:
                 try:
                     df = pd.read_csv(file)

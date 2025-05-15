@@ -29,15 +29,11 @@ def merge_gpu_results(base_dir, wandb_name):
         files = glob(os.path.join(gpu_dir, "helpsteer_eval_*.csv"))
         for file in files:
             if "weights" in file:
-                # 提取权重字符串 - 修复提取方式
+                # 提取完整的权重字符串
                 try:
                     # 从文件名中提取权重部分
                     weight_part = file.split("weights")[-1].split(".")[0]
-                    # 确保权重格式正确
-                    if weight_part.startswith("-"):
-                        weight_part = weight_part[1:]
-                    if weight_part.endswith("-"):
-                        weight_part = weight_part[:-1]
+                    # 保持原始格式
                     weight_patterns.add(weight_part)
                     print(f"Extracted weight pattern: {weight_part} from {file}")
                 except Exception as e:
@@ -56,17 +52,17 @@ def merge_gpu_results(base_dir, wandb_name):
         
         # 收集所有GPU的结果
         for gpu_dir in gpu_dirs:
-            # 修改文件匹配模式
+            # 使用完整的权重字符串进行匹配
             pattern = f"*weights{weight_str}.csv"
-            if not weight_str.startswith("-"):
-                pattern = f"*weights-{weight_str}.csv"
             files = glob(os.path.join(gpu_dir, pattern))
+            print(f"Looking for files matching pattern: {pattern}")
+            print(f"Found files: {files}")
             
             for file in files:
                 try:
                     df = pd.read_csv(file)
                     all_results.append(df)
-                    print(f"Loaded results from {file}")
+                    print(f"Loaded results from {file} with {len(df)} rows")
                 except Exception as e:
                     print(f"Error loading {file}: {str(e)}")
         
@@ -76,6 +72,7 @@ def merge_gpu_results(base_dir, wandb_name):
         
         # 合并所有结果
         merged_df = pd.concat(all_results, ignore_index=True)
+        print(f"Merged {len(all_results)} files into one with {len(merged_df)} total rows")
         
         # 计算平均分数
         attributes = [col for col in merged_df.columns if col.startswith('helpsteer-')]

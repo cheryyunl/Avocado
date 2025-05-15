@@ -33,9 +33,9 @@ def merge_gpu_results(base_dir, wandb_name):
                 try:
                     # 从文件名中提取权重部分
                     weight_part = file.split("weights")[-1].split(".")[0]
-                    # 保持原始格式
+                    # 保持原始格式，包括所有数字和连字符
                     weight_patterns.add(weight_part)
-                    print(f"Extracted weight pattern: {weight_part} from {file}")
+                    print(f"Extracted weight pattern: {weight_part} from {os.path.basename(file)}")
                 except Exception as e:
                     print(f"Error extracting weight pattern from {file}: {str(e)}")
     
@@ -56,13 +56,13 @@ def merge_gpu_results(base_dir, wandb_name):
             pattern = f"*weights{weight_str}.csv"
             files = glob(os.path.join(gpu_dir, pattern))
             print(f"Looking for files matching pattern: {pattern}")
-            print(f"Found files: {files}")
+            print(f"Found files: {[os.path.basename(f) for f in files]}")
             
             for file in files:
                 try:
                     df = pd.read_csv(file)
                     all_results.append(df)
-                    print(f"Loaded results from {file} with {len(df)} rows")
+                    print(f"Loaded results from {os.path.basename(file)} with {len(df)} rows")
                 except Exception as e:
                     print(f"Error loading {file}: {str(e)}")
         

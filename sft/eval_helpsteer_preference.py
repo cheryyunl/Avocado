@@ -577,7 +577,11 @@ def main():
             
             # 只显示guidance attributes对应的分数
             guidance_scores = [scores[i] for i in GUIDANCE_INDICES]
-            print(f"{weights:<20} {guidance_scores[0]:<12.4f} {guidance_scores[1]:<12.4f} {guidance_scores[2]:<12.4f} {guidance_scores[3]:<12.4f} {overall:<10.4f} {filename}")
+            
+            # 将weights列表转换为字符串
+            weights_str = "-".join([f"{w:.1f}" for w in weights])
+            
+            print(f"{weights_str:<20} {guidance_scores[0]:<12.4f} {guidance_scores[1]:<12.4f} {guidance_scores[2]:<12.4f} {guidance_scores[3]:<12.4f} {overall:<10.4f} {filename}")
         
         # 保存汇总结果
         summary_data = []

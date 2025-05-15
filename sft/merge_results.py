@@ -58,6 +58,14 @@ def merge_gpu_results(base_dir, wandb_name):
             print(f"Looking for files matching pattern: {pattern}")
             print(f"Found files: {[os.path.basename(f) for f in files]}")
             
+            # 如果没找到文件，尝试其他可能的模式
+            if not files:
+                # 尝试在权重字符串前添加连字符
+                pattern = f"*weights-{weight_str}.csv"
+                files = glob(os.path.join(gpu_dir, pattern))
+                print(f"Trying alternative pattern: {pattern}")
+                print(f"Found files: {[os.path.basename(f) for f in files]}")
+            
             for file in files:
                 try:
                     df = pd.read_csv(file)

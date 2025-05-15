@@ -5,12 +5,23 @@ from glob import glob
 
 def merge_gpu_results(base_dir, wandb_name):
     """合并所有GPU的结果文件"""
+    # 确保base_dir是绝对路径
+    base_dir = os.path.abspath(base_dir)
     output_dir = os.path.join(base_dir, wandb_name)
-    gpu_dirs = glob(os.path.join(output_dir, "gpu_*"))
+    
+    print(f"Looking for GPU results in: {output_dir}")
+    
+    # 查找所有gpu_*目录
+    gpu_dirs = [d for d in glob(os.path.join(output_dir, "gpu_*")) if os.path.isdir(d)]
     
     if not gpu_dirs:
         print(f"No GPU result directories found in {output_dir}")
+        print("Available directories:")
+        for item in os.listdir(output_dir):
+            print(f"  - {item}")
         return
+    
+    print(f"Found GPU directories: {gpu_dirs}")
     
     # 获取所有权重组合
     weight_patterns = set()
@@ -21,6 +32,12 @@ def merge_gpu_results(base_dir, wandb_name):
                 # 提取权重字符串
                 weight_str = file.split("weights")[-1].split(".")[0]
                 weight_patterns.add(weight_str)
+    
+    if not weight_patterns:
+        print("No weight patterns found in the results")
+        return
+    
+    print(f"Found weight patterns: {weight_patterns}")
     
     # 对每个权重组合合并结果
     for weight_str in weight_patterns:

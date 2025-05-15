@@ -48,6 +48,9 @@ GUIDANCE_ATTRIBUTES = [HELPSTEER_ATTRIBUTES[i] for i in GUIDANCE_INDICES]
 
 # 定义多组preference weights来评估
 PREFERENCE_WEIGHTS_LIST = [
+    [0.9, 0.1, 0, 0],    # 主要关注helpfulness
+    [0.1, 0.9, 0, 0],    # 主要关注correctness
+    [0, 0, 0.9, 0.1],    # 主要关注coherence, 少量complexity
     [0, 0, 0.1, 0.9],    # 主要关注coherence, 少量complexity
 ]
 

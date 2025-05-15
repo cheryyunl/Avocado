@@ -15,6 +15,13 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from utils import load_main_tokenizer, check_lora_in_model_path
 
+# 设置NCCL超时和调试环境变量
+os.environ["NCCL_DEBUG"] = "INFO"
+os.environ["NCCL_IB_TIMEOUT"] = "1800"  # 30分钟超时
+os.environ["NCCL_SOCKET_TIMEOUT"] = "1800"  # 30分钟超时
+os.environ["NCCL_BLOCKING_WAIT"] = "1"  # 使用阻塞等待
+os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"  # 启用异步错误处理
+
 # 设置临时目录到空间充足的分区
 import tempfile
 os.environ['TMPDIR'] = '/scratch1/tmp'
@@ -347,7 +354,12 @@ def main():
     print(f'Process: {process_id}/{num_processes}, model GPU ID: {gpu_id}')
     
     # 创建输出目录
-    os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), exist_ok=True)
+    output_dir = os.path.join(script_args.save_directory, script_args.wandb_name)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 为每个GPU创建单独的结果目录
+    gpu_output_dir = os.path.join(output_dir, f"gpu_{gpu_id}")
+    os.makedirs(gpu_output_dir, exist_ok=True)
     
     # 设置随机种子
     set_seed(8888)
@@ -416,9 +428,6 @@ def main():
     # 使用accelerator准备模型和数据加载器
     model, valid_data_loader = accelerator.prepare(model, valid_data_loader)
     
-    # 存储所有preference weights的结果
-    all_results = {}
-    
     # 循环评估每组preference weights
     for pref_idx, preference_weights in enumerate(PREFERENCE_WEIGHTS_LIST):
         print(f"\n{'='*50}")
@@ -484,7 +493,6 @@ def main():
                     response = full_text.split("Assistant:", 1)[1]
                 else:
                     response = full_text
-            
             clean_responses.append(response.strip())
         
         # 准备评估数据
@@ -494,60 +502,40 @@ def main():
         print(f"GPU {gpu_id} evaluating responses...")
         rewards_list = reward_model.get_reward_scores(query_response_pairs)
         
-        # 使用accelerator收集所有进程的结果
-        all_rewards = []
-        for i in range(reward_model.num_rewards):
-            all_rewards.append(accelerator.gather_for_metrics(rewards_list[i]))
+        # 保存当前GPU的结果
+        weight_str = f"{preference_weights[0]}-{preference_weights[1]}-{preference_weights[2]}-{preference_weights[3]}"
+        gpu_result = {
+            'prompt': original_prompts,
+            'response': clean_responses,
+        }
         
-        all_full_prompts = accelerator.gather_for_metrics(original_prompts)
-        all_full_responses = accelerator.gather_for_metrics(clean_responses)
+        # 添加每个属性的评分
+        for i, attr_name in enumerate(HELPSTEER_ATTRIBUTES):
+            gpu_result[attr_name] = rewards_list[i]
+            print(f'GPU {gpu_id} Average {attr_name} score: {np.mean(rewards_list[i]):.4f}')
         
-        # 只在主进程保存结果
-        if process_id == 0:
-            evaluation_result = {
-                'prompt': all_full_prompts,
-                'response': all_full_responses,
-            }
-            
-            # 添加每个属性的评分
-            for i, attr_name in enumerate(HELPSTEER_ATTRIBUTES):
-                evaluation_result[attr_name] = all_rewards[i]
-                print(f'Average {attr_name} score: {np.mean(all_rewards[i]):.4f}')
-            
-            # 计算整体平均分
-            all_scores_array = np.array([all_rewards[i] for i in range(len(HELPSTEER_ATTRIBUTES))])
-            overall_scores = np.mean(all_scores_array, axis=0)
-            evaluation_result['overall_score'] = overall_scores
-            print(f'Overall average score: {np.mean(overall_scores):.4f}')
-            
-            # 创建包含preference weights信息的文件名
-            weight_str = f"{preference_weights[0]}-{preference_weights[1]}-{preference_weights[2]}-{preference_weights[3]}"
-            if script_args.use_reward_guidance:
-                filename = os.path.join(
-                    script_args.save_directory, 
-                    script_args.wandb_name,
-                    f'helpsteer_eval_reward_guided_beta{script_args.beta}_topk{script_args.topk}_weights{weight_str}.csv'
-                )
-            else:
-                filename = os.path.join(
-                    script_args.save_directory, 
-                    script_args.wandb_name,
-                    f'helpsteer_eval_weights{weight_str}.csv'
-                )
-            
-            # 保存结果到CSV
-            dataframe = pd.DataFrame(evaluation_result)
-            dataframe.to_csv(filename)
-            print(f"Results saved to {filename}")
-            
-            # 收集结果供最终汇总
-            weight_key = weight_str
-            all_results[weight_key] = {
-                'weights': preference_weights,
-                'scores': [np.mean(all_rewards[i]) for i in range(reward_model.num_rewards)],
-                'overall_score': np.mean(overall_scores),
-                'filename': filename
-            }
+        # 计算整体平均分
+        all_scores_array = np.array([rewards_list[i] for i in range(len(HELPSTEER_ATTRIBUTES))])
+        overall_scores = np.mean(all_scores_array, axis=0)
+        gpu_result['overall_score'] = overall_scores
+        print(f'GPU {gpu_id} Overall average score: {np.mean(overall_scores):.4f}')
+        
+        # 保存当前GPU的结果
+        if script_args.use_reward_guidance:
+            filename = os.path.join(
+                gpu_output_dir,
+                f'helpsteer_eval_reward_guided_beta{script_args.beta}_topk{script_args.topk}_weights{weight_str}.csv'
+            )
+        else:
+            filename = os.path.join(
+                gpu_output_dir,
+                f'helpsteer_eval_weights{weight_str}.csv'
+            )
+        
+        # 保存结果到CSV
+        dataframe = pd.DataFrame(gpu_result)
+        dataframe.to_csv(filename)
+        print(f"GPU {gpu_id} results saved to {filename}")
         
         # 在每次循环后清理内存
         del full_response_tensors, full_prompts, full_responses, clean_responses
@@ -561,57 +549,8 @@ def main():
         
         print(f"Memory cleaned after run {pref_idx + 1}")
     
-    # 在所有评估完成后汇总结果
-    if process_id == 0:
-        print(f"\n{'='*50}")
-        print("FINAL SUMMARY")
-        print(f"{'='*50}")
-        print(f"{'Weights':<20} {'Helpfulness':<12} {'Correctness':<12} {'Coherence':<12} {'Complexity':<12} {'Overall':<10} {'File'}")
-        print("-" * 100)
-        
-        for weight_key, result in all_results.items():
-            weights = result['weights']
-            scores = result['scores']
-            overall = result['overall_score']
-            filename = os.path.basename(result['filename'])
-            
-            # 只显示guidance attributes对应的分数
-            guidance_scores = [scores[i] for i in GUIDANCE_INDICES]
-            
-            # 将weights列表转换为字符串
-            weights_str = "-".join([f"{w:.1f}" for w in weights])
-            
-            print(f"{weights_str:<20} {guidance_scores[0]:<12.4f} {guidance_scores[1]:<12.4f} {guidance_scores[2]:<12.4f} {guidance_scores[3]:<12.4f} {overall:<10.4f} {filename}")
-        
-        # 保存汇总结果
-        summary_data = []
-        for weight_key, result in all_results.items():
-            weights = result['weights']
-            scores = result['scores']
-            guidance_scores = [scores[i] for i in GUIDANCE_INDICES]
-            
-            summary_data.append({
-                'preference_weights': str(weights),
-                'helpfulness_weight': weights[0],
-                'correctness_weight': weights[1], 
-                'coherence_weight': weights[2],
-                'complexity_weight': weights[3],
-                'helpfulness_score': guidance_scores[0],
-                'correctness_score': guidance_scores[1],
-                'coherence_score': guidance_scores[2],
-                'complexity_score': guidance_scores[3],
-                'overall_score': result['overall_score'],
-                'filename': result['filename']
-            })
-        
-        summary_df = pd.DataFrame(summary_data)
-        summary_filename = os.path.join(
-            script_args.save_directory, 
-            script_args.wandb_name,
-            f'helpsteer_preference_weights_summary_beta{script_args.beta}.csv'
-        )
-        summary_df.to_csv(summary_filename, index=False)
-        print(f"\nSummary saved to {summary_filename}")
+    print(f"GPU {gpu_id} completed all evaluations. Results saved in {gpu_output_dir}")
+    print("Please run merge_results.py to combine results from all GPUs.")
 
 if __name__ == "__main__":
     main()

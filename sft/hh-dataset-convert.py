@@ -9,9 +9,11 @@ def convert_anthropic_to_dahoas_format(examples):
     将Anthropic的HH-RLHF数据集格式转换为Dahoas的full-hh-rlhf格式
     
     Anthropic格式: 'chosen', 'rejected' 包含完整的多轮Human/Assistant对话
-    Dahoas格式: 'prompt', 'chosen', 'rejected'，其中:
-        - prompt是所有之前的对话加上最后一个Human提问
-        - chosen/rejected是最后一个提问的两种不同Assistant回答
+    Dahoas格式: 
+        - prompt: 包含完整对话历史（包括所有Human:和Assistant:前缀），但不包含最后一个问题的回答
+        - response: 与chosen相同，不包含"Assistant:"前缀的被选择回答
+        - chosen: 不包含"Assistant:"前缀的被选择回答
+        - rejected: 不包含"Assistant:"前缀的被拒绝回答
     """
     new_examples = {
         "prompt": [],
@@ -27,7 +29,7 @@ def convert_anthropic_to_dahoas_format(examples):
         
         # 更健壮的解析方法
         try:
-            # 按照交替的Human/Assistant模式分割对话
+            # 查找最后一个Human:后紧跟的Assistant:
             chosen_parts = chosen.split("Human: ")
             rejected_parts = rejected.split("Human: ")
             
@@ -38,110 +40,100 @@ def convert_anthropic_to_dahoas_format(examples):
             if len(chosen_parts) < 1 or len(rejected_parts) < 1:
                 continue
                 
-            # 处理每个部分，分离Human和Assistant
-            chosen_turns = []
-            for part in chosen_parts:
-                if "Assistant: " in part:
-                    h_part, a_part = part.split("Assistant: ", 1)
-                    chosen_turns.append(("Human: " + h_part.strip(), "Assistant: " + a_part.strip()))
-                else:
-                    # 如果没有Assistant回答，这可能是最后一个未完成的轮次
-                    chosen_turns.append(("Human: " + part.strip(), None))
+            # 获取最后一个Human问题
+            last_human_query = chosen_parts[-1]
             
-            rejected_turns = []
-            for part in rejected_parts:
-                if "Assistant: " in part:
-                    h_part, a_part = part.split("Assistant: ", 1)
-                    rejected_turns.append(("Human: " + h_part.strip(), "Assistant: " + a_part.strip()))
-                else:
-                    rejected_turns.append(("Human: " + part.strip(), None))
-            
-            # 构建prompt（所有前面的轮次加上最后一个Human提问）
-            prompt_parts = []
-            
-            # 检查是否至少有两轮对话（以便获取完整的对话历史）
-            if len(chosen_turns) >= 2:
-                # 添加完整的对话历史（除了最后一轮）
-                for i in range(len(chosen_turns) - 1):
-                    human_query, assistant_response = chosen_turns[i]
-                    prompt_parts.append(human_query)
-                    if assistant_response:  # 确保assistant_response不是None
-                        prompt_parts.append(assistant_response)
-                
-                # 添加最后一个Human提问
-                last_human_query, _ = chosen_turns[-1]
-                prompt_parts.append(last_human_query)
+            # 分离最后一个Human问题和Assistant回答
+            if "Assistant: " in last_human_query:
+                human_part, assistant_part = last_human_query.split("Assistant: ", 1)
+                last_human_query = human_part.strip()
+                chosen_answer = assistant_part.strip()
             else:
-                # 如果只有一轮对话，直接使用第一个Human提问
-                human_query, _ = chosen_turns[0]
-                prompt_parts.append(human_query)
+                # 如果没有找到Assistant:，可能格式有问题
+                continue
+                
+            # 对rejected做同样的处理
+            last_rejected_query = rejected_parts[-1]
+            if "Assistant: " in last_rejected_query:
+                _, assistant_part = last_rejected_query.split("Assistant: ", 1)
+                rejected_answer = assistant_part.strip()
+            else:
+                continue
             
-            # 合并成完整的prompt
-            prompt = " ".join(prompt_parts)
+            # 构建prompt: 原始chosen文本直到最后一个Human:，不包括最后的Assistant回答
+            last_human_pos = chosen.rfind("Human: ")
+            if last_human_pos == -1:
+                continue
+                
+            # 找到最后一个Human:之后的文本
+            last_part = chosen[last_human_pos:]
             
-            # 从chosen和rejected中获取最后一个Assistant回答
-            _, last_chosen_response = chosen_turns[-1]
-            _, last_rejected_response = rejected_turns[-1]
+            # 找到这部分文本中的Assistant:位置
+            assistant_pos = last_part.find("Assistant: ")
+            if assistant_pos == -1:
+                continue
+                
+            # 构造prompt，包含所有内容直到最后一个Human:问题结束
+            prompt = chosen[:last_human_pos + assistant_pos].strip()
             
             # 确保我们有有效的回答
-            if not last_chosen_response or not last_rejected_response:
+            if not chosen_answer or not rejected_answer:
                 continue
                 
             new_examples["prompt"].append(prompt)
-            new_examples["response"].append(last_chosen_response)  # response字段设置为chosen回答
-            new_examples["chosen"].append(last_chosen_response)
-            new_examples["rejected"].append(last_rejected_response)
+            new_examples["response"].append(chosen_answer)  # response不包含"Assistant:"前缀
+            new_examples["chosen"].append(chosen_answer)  # chosen不包含"Assistant:"前缀
+            new_examples["rejected"].append(rejected_answer)  # rejected不包含"Assistant:"前缀
             
         except Exception as e:
-            # 如果出现解析错误，尝试使用之前基于正则表达式的方法
+            # 如果出现解析错误，尝试使用另一种基于正则表达式的方法
             try:
-                # 提取对话片段
-                chosen_segments = re.findall(r'(Human: .+?)(?=\s*Assistant: |\Z)', chosen, re.DOTALL)
-                chosen_assistant_segments = re.findall(r'(Assistant: .+?)(?=\s*Human: |\Z)', chosen, re.DOTALL)
+                # 使用正则表达式找到所有的Human和Assistant部分
+                human_parts = re.findall(r'Human: (.+?)(?=\s*Assistant:|\s*Human:|\Z)', chosen, re.DOTALL)
+                assistant_parts = re.findall(r'Assistant: (.+?)(?=\s*Human:|\Z)', chosen, re.DOTALL)
                 
-                rejected_segments = re.findall(r'(Human: .+?)(?=\s*Assistant: |\Z)', rejected, re.DOTALL)
-                rejected_assistant_segments = re.findall(r'(Assistant: .+?)(?=\s*Human: |\Z)', rejected, re.DOTALL)
-                
-                # 验证格式是否符合期望
-                if (len(chosen_segments) == 0 or len(chosen_assistant_segments) == 0 or 
-                    len(rejected_segments) == 0 or len(rejected_assistant_segments) == 0):
+                # 确保至少有一个人类问题和一个助手回答
+                if not human_parts or not assistant_parts:
                     continue
-                    
-                # 构造prompt (所有之前的对话 + 最后一个Human问题)
+                
+                # 构建prompt（所有对话历史，直到最后一个问题但不包括最后的回答）
                 prompt_parts = []
                 
-                # 添加除最后一轮外的所有对话（人类和助手部分交替）
-                for i in range(len(chosen_segments) - 1):
-                    prompt_parts.append(chosen_segments[i].strip())
-                    if i < len(chosen_assistant_segments) - 1:
-                        prompt_parts.append(chosen_assistant_segments[i].strip())
+                # 添加所有轮次的对话，保留Human:和Assistant:前缀
+                for i in range(len(human_parts) - 1):
+                    prompt_parts.append(f"Human: {human_parts[i].strip()}")
+                    if i < len(assistant_parts):  # 确保不超出范围
+                        prompt_parts.append(f"Assistant: {assistant_parts[i].strip()}")
                 
-                # 添加最后一个Human问题
-                prompt_parts.append(chosen_segments[-1].strip())
+                # 添加最后一个问题，保留Human:前缀
+                prompt_parts.append(f"Human: {human_parts[-1].strip()}")
                 
-                # 将所有部分连接成一个字符串，每部分之间有空格
+                # 组合成完整的prompt
                 prompt = " ".join(prompt_parts)
                 
-                # 获取chosen和rejected中最后的Assistant回答
-                chosen_response = chosen_assistant_segments[-1].strip()
-                rejected_response = rejected_assistant_segments[-1].strip()
+                # 获取chosen和rejected的最后回答（不带Assistant:前缀）
+                chosen_answer = assistant_parts[-1].strip()
                 
-                # 有时可能需要确保格式一致
-                if not chosen_response.startswith("Assistant:"):
-                    chosen_response = "Assistant: " + chosen_response
+                # 从rejected中提取相应的回答
+                rejected_human_parts = re.findall(r'Human: (.+?)(?=\s*Assistant:|\s*Human:|\Z)', rejected, re.DOTALL)
+                rejected_assistant_parts = re.findall(r'Assistant: (.+?)(?=\s*Human:|\Z)', rejected, re.DOTALL)
+                
+                if not rejected_assistant_parts:
+                    continue
                     
-                if not rejected_response.startswith("Assistant:"):
-                    rejected_response = "Assistant: " + rejected_response
+                rejected_answer = rejected_assistant_parts[-1].strip()
                 
                 new_examples["prompt"].append(prompt)
-                new_examples["response"].append(chosen_response)
-                new_examples["chosen"].append(chosen_response)
-                new_examples["rejected"].append(rejected_response)
+                new_examples["response"].append(chosen_answer)  # response不包含"Assistant:"前缀
+                new_examples["chosen"].append(chosen_answer)  # chosen不包含"Assistant:"前缀
+                new_examples["rejected"].append(rejected_answer)  # rejected不包含"Assistant:"前缀
                 
             except Exception as e2:
                 # 如果两种方法都失败，则跳过此样本
                 print(f"Error processing example: {e2}")
                 continue
+    
+    return new_examples
     
     return new_examples
 
@@ -290,16 +282,19 @@ def test_sample():
     print(f"Rejected: {sample1['rejected'][0]}")
     print("\nConverted sample:")
     print(f"Prompt: {result1['prompt'][0]}")
+    print(f"Response: {result1['response'][0]}")
     print(f"Chosen: {result1['chosen'][0]}")
     print(f"Rejected: {result1['rejected'][0]}")
     
     # 验证结果是否符合预期
     expected_prompt1 = "Human: What are some cuss words in english? Assistant: Here's an incomplete list. Ass, dick, bugger, crap, fuck, shit, bitch, turd, shithead, shitbag, scrotum, cunt, whore, fucker, shit-eating, cum, cumbucket, fucknugget, butthole, poop, jackass, cocksucker, asshole, goddamn, piss, sperm, blow, wank, jism, cum-sucking, masturbate, faggot, queer, jizz, jizz-licking, prostitute, slut, cheater, fornicator, floozy, wetback, Mexican, Hispanic, sodomite, midget, mama's boy, faggot, pervert, queer, scumbag, bitch, Human: What's your favorite one?"
-    expected_chosen1 = "Assistant: I haven't even thought about it."
-    expected_rejected1 = "Assistant: Ass."
+    expected_response1 = "Assistant: I haven't even thought about it."
+    expected_chosen1 = "I haven't even thought about it."
+    expected_rejected1 = "Ass."
     
     print("\nValidation:")
     print(f"Prompt matches expected: {result1['prompt'][0] == expected_prompt1}")
+    print(f"Response matches expected: {result1['response'][0] == expected_response1}")
     print(f"Chosen matches expected: {result1['chosen'][0] == expected_chosen1}")
     print(f"Rejected matches expected: {result1['rejected'][0] == expected_rejected1}")
     
@@ -312,18 +307,55 @@ def test_sample():
     print(f"Rejected: {sample2['rejected'][0]}")
     print("\nConverted sample:")
     print(f"Prompt: {result2['prompt'][0]}")
+    print(f"Response: {result2['response'][0]}")
     print(f"Chosen: {result2['chosen'][0]}")
     print(f"Rejected: {result2['rejected'][0]}")
     
     # 验证结果是否符合预期
     expected_prompt2 = "Human: How are you today? Assistant: I'm doing well, thank you for asking! How can I help you? Human: Tell me a joke."
-    expected_chosen2 = "Assistant: Why don't scientists trust atoms? Because they make up everything!"
-    expected_rejected2 = "Assistant: Your life."
+    expected_response2 = "Assistant: Why don't scientists trust atoms? Because they make up everything!"
+    expected_chosen2 = "Why don't scientists trust atoms? Because they make up everything!"
+    expected_rejected2 = "Your life."
     
     print("\nValidation:")
     print(f"Prompt matches expected: {result2['prompt'][0] == expected_prompt2}")
+    print(f"Response matches expected: {result2['response'][0] == expected_response2}")
     print(f"Chosen matches expected: {result2['chosen'][0] == expected_chosen2}")
     print(f"Rejected matches expected: {result2['rejected'][0] == expected_rejected2}")
+    
+    # 来自您第二个例子的样本
+    sample3 = {
+        "chosen": [
+            "Human: Should you buy a case to protect your cell phone? Assistant: It depends on your circumstances. If you carry your phone in a pocket or a purse then you probably want a case. But if you only need a phone for quick interactions, a case may actually cause more harm than good. What do you need the phone for? Are you a parent, or do you work from home? Human: What harm could it do? Assistant: A phone case can damage the screen, for one thing. It can also get you in trouble if you have your phone turned off for some reason. Then you will turn it back on and it won't do anything. If you can afford to replace it, then you need a case to protect it. The problem is that most people aren't able to afford to replace their phones all the time. Human: Thanks for letting me know. Assistant: You're welcome."
+        ],
+        "rejected": [
+            "Human: Should you buy a case to protect your cell phone? Assistant: It depends on your circumstances. If you carry your phone in a pocket or a purse then you probably want a case. But if you only need a phone for quick interactions, a case may actually cause more harm than good. What do you need the phone for? Are you a parent, or do you work from home? Human: What harm could it do? Assistant: A phone case can damage the screen, for one thing. It can also get you in trouble if you have your phone turned off for some reason. Then you will turn it back on and it won't do anything. If you can afford to replace it, then you need a case to protect it. The problem is that most people aren't able to afford to replace their phones all the time. Human: Thanks for letting me know. Assistant: You're welcome.\nYou're welcome."
+        ]
+    }
+    
+    # 测试第三个样本
+    print("\n=== Testing Sample 3 ===")
+    result3 = convert_anthropic_to_dahoas_format(sample3)
+    
+    print("Original sample:")
+    print(f"Chosen: {sample3['chosen'][0]}")
+    print(f"Rejected: {sample3['rejected'][0]}")
+    print("\nConverted sample:")
+    print(f"Prompt: {result3['prompt'][0]}")
+    print(f"Response: {result3['response'][0]}")
+    print(f"Chosen: {result3['chosen'][0]}")
+    print(f"Rejected: {result3['rejected'][0]}")
+    
+    expected_prompt3 = "Human: Should you buy a case to protect your cell phone? Assistant: It depends on your circumstances. If you carry your phone in a pocket or a purse then you probably want a case. But if you only need a phone for quick interactions, a case may actually cause more harm than good. What do you need the phone for? Are you a parent, or do you work from home? Human: What harm could it do? Assistant: A phone case can damage the screen, for one thing. It can also get you in trouble if you have your phone turned off for some reason. Then you will turn it back on and it won't do anything. If you can afford to replace it, then you need a case to protect it. The problem is that most people aren't able to afford to replace their phones all the time. Human: Thanks for letting me know."
+    expected_response3 = "Assistant: You're welcome."
+    expected_chosen3 = "You're welcome."
+    expected_rejected3 = "You're welcome.\nYou're welcome."
+    
+    print("\nValidation:")
+    print(f"Prompt matches expected: {result3['prompt'][0] == expected_prompt3}")
+    print(f"Response matches expected: {result3['response'][0] == expected_response3}")
+    print(f"Chosen matches expected: {result3['chosen'][0] == expected_chosen3}")
+    print(f"Rejected matches expected: {result3['rejected'][0] == expected_rejected3}")
 
     print("\nTest completed!")
 

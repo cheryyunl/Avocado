@@ -100,7 +100,7 @@ def create_dahoas_style_dataset():
                 
                 # 创建存储库
                 print(f"\nCreating repository {full_repo_name}...")
-                create_repo(full_repo_name, exist_ok=True)
+                create_repo(full_repo_name, repo_type="dataset", exist_ok=True)
                 
                 # 克隆存储库
                 repo_local_path = os.path.join(tmp_dir, repo_name)

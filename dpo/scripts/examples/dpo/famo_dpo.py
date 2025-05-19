@@ -26,7 +26,7 @@ class ScriptArguments:
     sanity_check: Optional[bool] = field(default=False, metadata={"help": "whether to conduct sanity check"})
 
     beta: Optional[float] = field(default=0.1, metadata={"help": "beta for kl control"})
-    max_length: Optional[int] = field(default=1024, metadata={"help": "the maximum sequence length"})
+    max_length: Optional[int] = field(default=512, metadata={"help": "the maximum sequence length"})
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
     generate_during_eval: Optional[bool] = field(default=True, metadata={"help": "whether to generate during evaluation"})
 
@@ -44,9 +44,9 @@ class ScriptArguments:
             overwrite_output_dir=True,
             seed=42,
 
-            per_device_train_batch_size=1,
-            per_device_eval_batch_size=1,
-            gradient_accumulation_steps=8,
+            per_device_train_batch_size=2,
+            per_device_eval_batch_size=2,
+            gradient_accumulation_steps=4,
             learning_rate=5e-5,
             lr_scheduler_type="cosine",
             warmup_steps=0.1,

@@ -44,9 +44,9 @@ class ScriptArguments:
             overwrite_output_dir=True,
             seed=42,
 
-            per_device_train_batch_size=2,
-            per_device_eval_batch_size=2,
-            gradient_accumulation_steps=4,
+            per_device_train_batch_size=1,
+            per_device_eval_batch_size=1,
+            gradient_accumulation_steps=8,
             learning_rate=5e-5,
             lr_scheduler_type="cosine",
             warmup_steps=0.1,

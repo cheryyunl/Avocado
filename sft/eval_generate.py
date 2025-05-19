@@ -58,13 +58,9 @@ os.makedirs(os.path.join(script_args.save_directory, script_args.wandb_name), ex
 
 tokenizer = load_main_tokenizer(tokenizer_name)
 
-if script_args.input_jsonl.endswith('.jsonl'):
-    with open(script_args.input_jsonl, 'r') as f:
-        data = [json.loads(line) for line in f]
-else: 
-    with open(script_args.input_jsonl, 'r') as f:
-        data = json.load(f)
-
+print(f"Reading file: {script_args.input_jsonl}")
+with open(script_args.input_jsonl, 'r', encoding='utf-8') as f:
+    data = json.load(f)
 print(f"loaded {len(data)} samples from {script_args.input_jsonl}")
 
 if exp_type == 'assistant':

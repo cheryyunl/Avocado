@@ -126,6 +126,7 @@ def main():
     process_id = accelerator.local_process_index 
     num_processes = accelerator.num_processes
     gpu_id = process_id
+    device = f"cuda:{gpu_id}"
     print(f'Process: {process_id}/{num_processes}, model GPU ID: {gpu_id}')
     
     # 创建输出目录
@@ -143,7 +144,7 @@ def main():
         base_model = AutoModelForCausalLM.from_pretrained(
             base_model_name, 
             torch_dtype=torch.bfloat16,
-            device_map=gpu_id,
+            device_map=device,
         )
         base_model.resize_token_embeddings(len(tokenizer))
         peft_config = PeftConfig.from_pretrained(model_path)
@@ -152,11 +153,11 @@ def main():
         model = AutoModelForCausalLM.from_pretrained(
             model_path, 
             torch_dtype=torch.bfloat16,
-            device_map=gpu_id,
+            device_map=device,
         )
         model.resize_token_embeddings(len(tokenizer))
 
-    reward_model = HelpSteerRewardModel(script_args.reward_model_path, device=f"cuda:{gpu_id}")
+    reward_model = HelpSteerRewardModel(script_args.reward_model_path, device=device)
     
     # 生成参数
     generation_kwargs = {

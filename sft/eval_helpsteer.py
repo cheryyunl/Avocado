@@ -166,7 +166,8 @@ def main():
         "min_length": -1,
         "top_k": 0.0,
         "top_p": 0.9, 
-        "do_sample":,
+        "do_sample": True,
+        "temperature": 0.5,
     }
     
     # 加载评估数据集

@@ -38,6 +38,7 @@ class HelpSteerRewardModel:
             trust_remote_code=True
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.device = device
         
         # 输入模板
         self.input_template = "[INST] You must read the following conversation carefully and rate the assistant's response from score 0-100 in these aspects: helpfulness, correctness, coherence, honesty, complexity, verbosity\n\nUser: {prompt}\n\nAssistant: {response} [/INST]"

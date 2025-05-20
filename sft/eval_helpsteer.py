@@ -103,7 +103,7 @@ def build_helpsteer_eval_dataset(helpsteer_path, tokenizer, split='validation', 
 @dataclass
 class ScriptArguments:
     save_directory: Optional[str] = field(default='./logs_trl')
-    base_model_name: Optional[str] = field(default='./huggingface_models/Llama-2-7b-hf')
+    base_model_name: Optional[str] = field(default='/cmlscratch/cheryunl/Avocado/sft/logs_trl/sft_hh_famo_helpsteer_mixed_model') 
     dpo_model_path: Optional[str] = field(default=None)
     wandb_name: Optional[str] = field(default='eval_helpsteer', metadata={"help": "Name for this experiment"})
     dataset_path: Optional[str] = field(default='nvidia/HelpSteer', metadata={"help": "Dataset to evaluate on"})
@@ -166,7 +166,7 @@ def main():
         "min_length": -1,
         "top_k": 0.0,
         "top_p": 0.9, 
-        "do_sample": True,
+        "do_sample":,
     }
     
     # 加载评估数据集

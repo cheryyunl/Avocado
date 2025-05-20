@@ -25,8 +25,7 @@ HELPSTEER_ATTRIBUTES = [
 ]
 
 class HelpSteerRewardModel:
-    def __init__(self, model_path="RLHFlow/RewardModel-Mistral-7B-for-DPA-v1", device="cuda"):
-        self.device = device
+    def __init__(self, model_path="RLHFlow/RewardModel-Mistral-7B-for-DPA-v1", device="cuda:0"):
         print(f"Loading HelpSteer reward model from {model_path}...")
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
@@ -156,7 +155,6 @@ def main():
             device_map=gpu_id,
         )
         model.resize_token_embeddings(len(tokenizer))
-    
 
     reward_model = HelpSteerRewardModel(script_args.reward_model_path, device=f"cuda:{gpu_id}")
     
